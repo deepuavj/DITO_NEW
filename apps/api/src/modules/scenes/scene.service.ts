@@ -1,7 +1,6 @@
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../middleware/error.middleware';
 import type { CreateSceneDto, UpdateSceneDto, SceneQuery } from './scene.validator';
-import type { Prisma } from '@prisma/client';
 
 export const sceneService = {
   async listForUser(userId: string, query: SceneQuery) {
@@ -31,7 +30,7 @@ export const sceneService = {
 
   async create(userId: string, dto: CreateSceneDto) {
     return prisma.scene.create({
-      data: { userId, ...dto, sceneData: dto.sceneData as Prisma.InputJsonValue },
+      data: { userId, ...dto, sceneData: dto.sceneData as never },
     });
   },
 
@@ -44,7 +43,7 @@ export const sceneService = {
       where: { id },
       data: {
         ...dto,
-        ...(dto.sceneData && { sceneData: dto.sceneData as Prisma.InputJsonValue }),
+        ...(dto.sceneData && { sceneData: dto.sceneData as never }),
         version: { increment: 1 },
       },
     });

@@ -34,14 +34,14 @@ export const assetService = {
   },
 
   async create(dto: CreateAssetDto) {
-    return prisma.asset.create({ data: { ...dto, metadata: dto.metadata as Prisma.InputJsonValue } });
+    return prisma.asset.create({ data: { ...dto, metadata: dto.metadata as never } });
   },
 
   async update(id: string, dto: UpdateAssetDto) {
     await this.getById(id);
     return prisma.asset.update({
       where: { id },
-      data: { ...dto, ...(dto.metadata && { metadata: dto.metadata as Prisma.InputJsonValue }) },
+      data: { ...dto, ...(dto.metadata && { metadata: dto.metadata as never }) },
     });
   },
 
