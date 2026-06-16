@@ -19,7 +19,7 @@ router.get(
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    const asset = await assetService.getById(req.params.id);
+    const asset = await assetService.getById(req.params['id'] as string);
     sendSuccess(res, asset);
   }),
 );
@@ -41,7 +41,7 @@ router.patch(
   authorize('ADMIN') as never,
   asyncHandler(async (req, res) => {
     const dto = updateAssetSchema.parse(req.body);
-    const asset = await assetService.update(req.params.id, dto);
+    const asset = await assetService.update(req.params['id'] as string, dto);
     sendSuccess(res, asset);
   }),
 );
@@ -51,7 +51,7 @@ router.delete(
   authenticate as never,
   authorize('ADMIN') as never,
   asyncHandler(async (req, res) => {
-    await assetService.delete(req.params.id);
+    await assetService.delete(req.params['id'] as string);
     sendSuccess(res, null, 200, 'Asset deleted');
   }),
 );

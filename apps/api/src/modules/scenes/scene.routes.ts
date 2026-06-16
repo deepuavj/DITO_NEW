@@ -24,7 +24,7 @@ router.get(
   '/:id',
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest;
-    const scene = await sceneService.getById(req.params.id, user.sub);
+    const scene = await sceneService.getById(req.params['id'] as string, user.sub);
     sendSuccess(res, scene);
   }),
 );
@@ -44,7 +44,7 @@ router.patch(
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest;
     const dto = updateSceneSchema.parse(req.body);
-    const scene = await sceneService.update(req.params.id, user.sub, dto);
+    const scene = await sceneService.update(req.params['id'] as string, user.sub, dto);
     sendSuccess(res, scene);
   }),
 );
@@ -53,7 +53,7 @@ router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
     const { user } = req as AuthenticatedRequest;
-    await sceneService.delete(req.params.id, user.sub);
+    await sceneService.delete(req.params['id'] as string, user.sub);
     sendSuccess(res, null, 200, 'Scene deleted');
   }),
 );
