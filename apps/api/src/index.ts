@@ -12,6 +12,8 @@ import sceneRoutes from './modules/scenes/scene.routes';
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 // ─── Security & Logging ──────────────────────────────────────────────────────
 
 app.use(helmet());
