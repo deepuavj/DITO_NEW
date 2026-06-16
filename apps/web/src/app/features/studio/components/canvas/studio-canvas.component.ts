@@ -1,6 +1,6 @@
 import {
   Component, ElementRef, ViewChild, AfterViewInit,
-  OnDestroy, inject, effect, HostListener,
+  OnDestroy, inject, effect, HostListener, Injector,
 } from '@angular/core';
 import { RendererService } from '../../services/renderer.service';
 import { SceneEngine } from '../../../../engines/scene/scene.engine';
@@ -24,6 +24,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   private readonly renderer = inject(RendererService);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly state = inject(StudioStateService);
+  private readonly injector = inject(Injector);
   private resizeObserver!: ResizeObserver;
 
   ngAfterViewInit(): void {
@@ -34,13 +35,13 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       this.sceneEngine.objects(); // track
       this.renderer.syncScene();
-    });
+    }, { injector: this.injector });
 
     // React to selection changes for highlight
     effect(() => {
       const id = this.sceneEngine.selectedId();
       this.renderer.highlightObject(id);
-    });
+    }, { injector: this.injector });
 
     this.resizeObserver = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
