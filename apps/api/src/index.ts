@@ -17,7 +17,15 @@ app.set('trust proxy', 1);
 // ─── Security & Logging ──────────────────────────────────────────────────────
 
 app.use(helmet());
-app.use(cors({ origin: config.cors.origin, credentials: true }));
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // same-origin / curl
+    const allowed = [config.cors.origin, /\.app\.github\.dev$/];
+    const ok = allowed.some(p => typeof p === 'string' ? p === origin : p.test(origin));
+    cb(ok ? null : new Error('CORS'), ok);
+  },
+  credentials: true,
+}));
 app.use(morgan(config.isDev() ? 'dev' : 'combined'));
 
 // ─── Rate Limiting ────────────────────────────────────────────────────────────
