@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '../../config/prisma.js';
-import { AppError } from '../../middleware/error.middleware.js';
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.util.js';
-import type { RegisterDto, LoginDto } from './auth.validator.js';
+import { prisma } from '../../config/prisma';
+import { AppError } from '../../middleware/error.middleware';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.util';
+import type { RegisterDto, LoginDto } from './auth.validator';
 
 const SALT_ROUNDS = 12;
 

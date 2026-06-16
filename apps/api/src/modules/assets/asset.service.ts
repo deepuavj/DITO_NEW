@@ -1,6 +1,6 @@
-import { prisma } from '../../config/prisma.js';
-import { AppError } from '../../middleware/error.middleware.js';
-import type { CreateAssetDto, UpdateAssetDto, AssetQuery } from './asset.validator.js';
+import { prisma } from '../../config/prisma';
+import { AppError } from '../../middleware/error.middleware';
+import type { CreateAssetDto, UpdateAssetDto, AssetQuery } from './asset.validator';
 import type { AssetCategory, Prisma } from '@prisma/client';
 
 export const assetService = {

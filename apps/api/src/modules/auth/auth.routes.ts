@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../utils/async-handler.util.js';
-import { authenticate } from '../../middleware/auth.middleware.js';
-import { sendSuccess } from '../../utils/response.util.js';
-import { registerSchema, loginSchema, refreshSchema } from './auth.validator.js';
-import { authService } from './auth.service.js';
-import type { AuthenticatedRequest } from '../../types/index.js';
+import { asyncHandler } from '../../utils/async-handler.util';
+import { authenticate } from '../../middleware/auth.middleware';
+import { sendSuccess } from '../../utils/response.util';
+import { registerSchema, loginSchema, refreshSchema } from './auth.validator';
+import { authService } from './auth.service';
+import type { AuthenticatedRequest } from '../../types/index';
 
 const router = Router();
 

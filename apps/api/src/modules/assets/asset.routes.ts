@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../utils/async-handler.util.js';
-import { authenticate, authorize } from '../../middleware/auth.middleware.js';
-import { sendSuccess, sendPaginated } from '../../utils/response.util.js';
-import { createAssetSchema, updateAssetSchema, assetQuerySchema } from './asset.validator.js';
-import { assetService } from './asset.service.js';
+import { asyncHandler } from '../../utils/async-handler.util';
+import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { sendSuccess, sendPaginated } from '../../utils/response.util';
+import { createAssetSchema, updateAssetSchema, assetQuerySchema } from './asset.validator';
+import { assetService } from './asset.service';
 
 const router = Router();
 

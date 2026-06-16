@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { asyncHandler } from '../../utils/async-handler.util.js';
-import { authenticate } from '../../middleware/auth.middleware.js';
-import { sendSuccess, sendPaginated } from '../../utils/response.util.js';
-import { createSceneSchema, updateSceneSchema, sceneQuerySchema } from './scene.validator.js';
-import { sceneService } from './scene.service.js';
-import type { AuthenticatedRequest } from '../../types/index.js';
+import { asyncHandler } from '../../utils/async-handler.util';
+import { authenticate } from '../../middleware/auth.middleware';
+import { sendSuccess, sendPaginated } from '../../utils/response.util';
+import { createSceneSchema, updateSceneSchema, sceneQuerySchema } from './scene.validator';
+import { sceneService } from './scene.service';
+import type { AuthenticatedRequest } from '../../types/index';
 
 const router = Router();
 

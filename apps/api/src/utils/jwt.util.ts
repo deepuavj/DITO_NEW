@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
-import { config } from '../config/index.js';
-import type { AuthPayload } from '../types/index.js';
+import { config } from '../config/index';
+import type { AuthPayload } from '../types/index';
 
 export function signAccessToken(payload: AuthPayload): string {
   return jwt.sign(payload, config.jwt.accessSecret, {

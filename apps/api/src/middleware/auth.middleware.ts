@@ -1,7 +1,7 @@
 import type { Response, NextFunction } from 'express';
-import type { AuthenticatedRequest } from '../types/index.js';
-import { verifyAccessToken } from '../utils/jwt.util.js';
-import { AppError } from './error.middleware.js';
+import type { AuthenticatedRequest } from '../types/index';
+import { verifyAccessToken } from '../utils/jwt.util';
+import { AppError } from './error.middleware';
 import type { Role } from '@prisma/client';
 
 export function authenticate(req: AuthenticatedRequest, _res: Response, next: NextFunction): void {

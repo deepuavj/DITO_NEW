@@ -4,11 +4,11 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
-import { config } from './config/index.js';
-import { errorMiddleware } from './middleware/error.middleware.js';
-import authRoutes from './modules/auth/auth.routes.js';
-import assetRoutes from './modules/assets/asset.routes.js';
-import sceneRoutes from './modules/scenes/scene.routes.js';
+import { config } from './config/index';
+import { errorMiddleware } from './middleware/error.middleware';
+import authRoutes from './modules/auth/auth.routes';
+import assetRoutes from './modules/assets/asset.routes';
+import sceneRoutes from './modules/scenes/scene.routes';
 
 const app = express();
 

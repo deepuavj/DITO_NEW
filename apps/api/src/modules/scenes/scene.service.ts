@@ -1,6 +1,6 @@
-import { prisma } from '../../config/prisma.js';
-import { AppError } from '../../middleware/error.middleware.js';
-import type { CreateSceneDto, UpdateSceneDto, SceneQuery } from './scene.validator.js';
+import { prisma } from '../../config/prisma';
+import { AppError } from '../../middleware/error.middleware';
+import type { CreateSceneDto, UpdateSceneDto, SceneQuery } from './scene.validator';
 import type { Prisma } from '@prisma/client';
 
 export const sceneService = {
