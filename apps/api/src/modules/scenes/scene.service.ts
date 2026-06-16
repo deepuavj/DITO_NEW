@@ -1,6 +1,9 @@
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../middleware/error.middleware';
 import type { CreateSceneDto, UpdateSceneDto, SceneQuery } from './scene.validator';
+import type { Prisma } from '@prisma/client';
+
+type JsonValue = Prisma.InputJsonValue;
 
 export const sceneService = {
   async listForUser(userId: string, query: SceneQuery) {
@@ -29,8 +32,9 @@ export const sceneService = {
   },
 
   async create(userId: string, dto: CreateSceneDto) {
+    const { sceneData, ...rest } = dto;
     return prisma.scene.create({
-      data: { userId, ...dto, sceneData: dto.sceneData as never },
+      data: { userId, ...rest, sceneData: (sceneData ?? {}) as JsonValue },
     });
   },
 
@@ -39,11 +43,12 @@ export const sceneService = {
     if (!scene) throw new AppError('Scene not found', 404);
     if (scene.userId !== userId) throw new AppError('Forbidden', 403);
 
+    const { sceneData, ...rest } = dto;
     return prisma.scene.update({
       where: { id },
       data: {
-        ...dto,
-        ...(dto.sceneData && { sceneData: dto.sceneData as never }),
+        ...rest,
+        ...(sceneData !== undefined && { sceneData: sceneData as JsonValue }),
         version: { increment: 1 },
       },
     });

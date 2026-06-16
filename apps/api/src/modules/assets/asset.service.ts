@@ -3,6 +3,8 @@ import { AppError } from '../../middleware/error.middleware';
 import type { CreateAssetDto, UpdateAssetDto, AssetQuery } from './asset.validator';
 import type { AssetCategory, Prisma } from '@prisma/client';
 
+type JsonValue = Prisma.InputJsonValue;
+
 export const assetService = {
   async list(query: AssetQuery) {
     const { page, limit, category, search, tags } = query;
@@ -34,14 +36,16 @@ export const assetService = {
   },
 
   async create(dto: CreateAssetDto) {
-    return prisma.asset.create({ data: { ...dto, metadata: dto.metadata as never } });
+    const { metadata, ...rest } = dto;
+    return prisma.asset.create({ data: { ...rest, metadata: (metadata ?? {}) as JsonValue } });
   },
 
   async update(id: string, dto: UpdateAssetDto) {
     await this.getById(id);
+    const { metadata, ...rest } = dto;
     return prisma.asset.update({
       where: { id },
-      data: { ...dto, ...(dto.metadata && { metadata: dto.metadata as never }) },
+      data: { ...rest, ...(metadata !== undefined && { metadata: metadata as JsonValue }) },
     });
   },
 
