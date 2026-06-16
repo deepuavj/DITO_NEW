@@ -6,7 +6,7 @@ export const createAssetSchema = z.object({
   category: z.nativeEnum(AssetCategory),
   glbUrl: z.string().url(),
   thumbnailUrl: z.string().url().optional(),
-  metadata: z.record(z.unknown()).optional().default({}),
+  metadata: z.record(z.string(), z.unknown()).optional().default({}),
   tags: z.array(z.string()).optional().default([]),
   isPublic: z.boolean().optional().default(true),
 });

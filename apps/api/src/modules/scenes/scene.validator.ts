@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const createSceneSchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().optional(),
-  sceneData: z.record(z.unknown()).optional().default({}),
+  sceneData: z.record(z.string(), z.unknown()).optional().default({}),
   isPublic: z.boolean().optional().default(false),
 });
 
