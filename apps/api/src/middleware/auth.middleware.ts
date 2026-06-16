@@ -1,0 +1,31 @@
+import type { Response, NextFunction } from 'express';
+import type { AuthenticatedRequest } from '../types/index.js';
+import { verifyAccessToken } from '../utils/jwt.util.js';
+import { AppError } from './error.middleware.js';
+import type { Role } from '@prisma/client';
+
+export function authenticate(req: AuthenticatedRequest, _res: Response, next: NextFunction): void {
+  const header = req.headers.authorization;
+
+  if (!header?.startsWith('Bearer ')) {
+    return next(new AppError('Missing or invalid Authorization header', 401));
+  }
+
+  const token = header.slice(7);
+
+  try {
+    req.user = verifyAccessToken(token);
+    next();
+  } catch {
+    next(new AppError('Token invalid or expired', 401));
+  }
+}
+
+export function authorize(...roles: Role[]) {
+  return (req: AuthenticatedRequest, _res: Response, next: NextFunction): void => {
+    if (!roles.includes(req.user.role)) {
+      return next(new AppError('Insufficient permissions', 403));
+    }
+    next();
+  };
+}

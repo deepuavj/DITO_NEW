@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  DESIGNER
+  CUSTOMER
+  ENTERPRISE
+}
+
+enum AssetCategory {
+  SOFA
+  CHAIR
+  TABLE
+  BED
+  STORAGE
+  LIGHTING
+  DECOR
+  WALL
+  FLOOR
+  CEILING
+  ROOM
+  OTHER
+}
+
+enum MaterialType {
+  FABRIC
+  LEATHER
+  WOOD
+  METAL
+  MARBLE
+  CONCRETE
+  GLASS
+  PLASTIC
+  OTHER
+}
+
+enum RenderJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ─── Users & Organisations ────────────────────────────────────────────────────
+
+model Organisation {
+  id        String   @id @default(uuid())
+  name      String
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users User[]
+
+  @@map("organisations")
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  passwordHash   String    @map("password_hash")
+  name           String
+  role           Role      @default(DESIGNER)
+  avatarUrl      String?   @map("avatar_url")
+  organisationId String?   @map("organisation_id")
+  refreshToken   String?   @map("refresh_token")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id])
+  scenes       Scene[]
+  renderJobs   RenderJob[]
+
+  @@map("users")
+}
+
+// ─── Assets ───────────────────────────────────────────────────────────────────
+
+model Asset {
+  id           String        @id @default(uuid())
+  name         String
+  category     AssetCategory
+  glbUrl       String        @map("glb_url")
+  thumbnailUrl String?       @map("thumbnail_url")
+  // Full metadata: editableZones, properties, snapRules, aiTags, etc.
+  metadata     Json          @default("{}")
+  tags         String[]      @default([])
+  isPublic     Boolean       @default(true) @map("is_public")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@map("assets")
+}
+
+// ─── Materials ────────────────────────────────────────────────────────────────
+
+model Material {
+  id           String       @id @default(uuid())
+  name         String
+  type         MaterialType
+  thumbnailUrl String?      @map("thumbnail_url")
+  // PBR map URLs, tiling, roughness, metalness, etc.
+  metadata     Json         @default("{}")
+  tags         String[]     @default([])
+  isPublic     Boolean      @default(true) @map("is_public")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  @@map("materials")
+}
+
+// ─── Scenes ───────────────────────────────────────────────────────────────────
+
+model Scene {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  name        String
+  description String?
+  // Full scene graph serialised as metadata JSON
+  sceneData   Json     @default("{}") @map("scene_data")
+  thumbnail   String?
+  isPublic    Boolean  @default(false) @map("is_public")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  renderJobs RenderJob[]
+
+  @@map("scenes")
+}
+
+// ─── Render Jobs ──────────────────────────────────────────────────────────────
+
+model RenderJob {
+  id         String          @id @default(uuid())
+  userId     String          @map("user_id")
+  sceneId    String          @map("scene_id")
+  status     RenderJobStatus @default(PENDING)
+  outputUrl  String?         @map("output_url")
+  settings   Json            @default("{}")
+  errorMsg   String?         @map("error_msg")
+  startedAt  DateTime?       @map("started_at")
+  finishedAt DateTime?       @map("finished_at")
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id])
+  scene Scene @relation(fields: [sceneId], references: [id])
+
+  @@map("render_jobs")
+}
