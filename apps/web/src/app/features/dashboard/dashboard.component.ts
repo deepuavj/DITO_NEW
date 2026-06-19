@@ -119,7 +119,7 @@ const FEATURES = [
       <!-- Top greeting -->
       <div class="flex items-start justify-between mb-8 animate-in">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">{{ greeting() }}, {{ auth.user()?.name?.split(' ')[0] ?? '' }} 👋</h1>
+          <h1 class="text-2xl font-bold text-gray-900">{{ greeting() }}, {{ firstName() }} 👋</h1>
           <p class="text-gray-500 mt-1">Here's your design workspace</p>
         </div>
         <button
@@ -341,5 +341,11 @@ export class DashboardComponent implements OnInit {
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  firstName(): string {
+    const name = this.auth.user()?.name;
+    if (!name) return '';
+    return name.split(' ').at(0) ?? name;
   }
 }
