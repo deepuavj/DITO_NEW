@@ -25,16 +25,24 @@ import type { Asset } from '../../core/models/asset.models';
   ],
   providers: [StudioStateService, HistoryService],
   styles: [`
-    .studio-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #080D1A; color: #E2E8F0; outline: none; }
+    .studio-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; outline: none; background: var(--canvas-bg); color: var(--fg); }
+    .studio-root.dark {
+      --canvas-bg: #080D1A; --panel-bg: rgba(14,20,35,0.96); --border: rgba(255,255,255,0.07);
+      --muted: #7C8CA0; --fg: #E2E8F0; --input-bg: rgba(26,37,60,0.8);
+    }
+    .studio-root.light {
+      --canvas-bg: #F0F2F5; --panel-bg: rgba(255,255,255,0.96); --border: rgba(0,0,0,0.1);
+      --muted: #6B7280; --fg: #1F2937; --input-bg: rgba(0,0,0,0.04);
+    }
     .studio-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
     .canvas-area { flex: 1; position: relative; overflow: hidden; min-width: 0; }
-    .panel-toggle { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 48px; background: rgba(14,20,35,0.8); border: 1px solid rgba(255,255,255,0.07); color: #7C8CA0; font-size: 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 200ms; z-index: 10; }
-    .panel-toggle:hover { color: #E2E8F0; background: rgba(37,99,235,0.3); }
+    .panel-toggle { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 48px; background: var(--panel-bg); border: 1px solid var(--border); color: var(--muted); font-size: 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 200ms; z-index: 10; }
+    .panel-toggle:hover { color: var(--fg); background: rgba(37,99,235,0.3); }
     .left-toggle { left: 4px; border-radius: 0 4px 4px 0; }
     .right-toggle { right: 4px; border-radius: 4px 0 0 4px; }
   `],
   template: `
-    <div class="studio-root" (keydown)="onKeyDown($event)" tabindex="0">
+    <div class="studio-root" [class.dark]="state.theme()==='dark'" [class.light]="state.theme()==='light'" (keydown)="onKeyDown($event)" tabindex="0">
       @if (state.topPanelVisible()) {
         <dito-studio-toolbar (saveClicked)="onSave()" (renderClicked)="onRender()" />
       }

@@ -55,13 +55,23 @@ export class RendererService implements OnDestroy {
   }
 
   private syncObject(obj: SceneObject): void {
-    const existing = this.meshMap.get(obj.id);
-    if (existing) {
-      existing.position.set(...obj.position);
-      existing.rotation.set(...obj.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
-      existing.scale.set(...obj.scale);
+    let group = this.meshMap.get(obj.id);
+    if (!group) {
+      group = new THREE.Group();
+      group.userData['objectId'] = obj.id;
+      const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.8 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.position.y = 0.4;
+      group.add(mesh);
+      this.threeScene.add(group);
+      this.meshMap.set(obj.id, group);
     }
-    // Note: GLB loading is deferred — call loadAsset explicitly
+    group.position.set(...obj.position);
+    group.rotation.set(...obj.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
+    group.scale.set(...obj.scale);
   }
 
   loadAsset(objectId: string, glbUrl: string): Promise<THREE.Group> {

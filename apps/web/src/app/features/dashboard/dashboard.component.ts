@@ -62,8 +62,43 @@ const FEATURES = [
       animation: fadeInUp 0.5s ease forwards;
     }
     .feature-card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.08); }
+
+    /* new project modal */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(4px); z-index: 100; display: flex; align-items: center; justify-content: center; }
+    .modal-card { background: white; border-radius: 20px; padding: 28px 32px; width: 400px; box-shadow: 0 32px 80px rgba(0,0,0,0.2); animation: fadeInUp 0.2s ease; }
+    .modal-title { font-size: 18px; font-weight: 700; color: #1D1D1F; margin-bottom: 6px; }
+    .modal-sub { font-size: 13px; color: #6B7280; margin-bottom: 20px; }
+    .modal-input { width: 100%; box-sizing: border-box; border: 1.5px solid #E5E7EB; border-radius: 10px; padding: 10px 14px; font-size: 15px; color: #1D1D1F; outline: none; transition: border-color 200ms; }
+    .modal-input:focus { border-color: #2563EB; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 20px; justify-content: flex-end; }
+    .modal-cancel { padding: 9px 20px; border: 1px solid #E5E7EB; border-radius: 10px; background: white; color: #6B7280; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 150ms; }
+    .modal-cancel:hover { background: #F9FAFB; color: #1D1D1F; }
+    .modal-create { padding: 9px 20px; border: none; border-radius: 10px; background: #2563EB; color: white; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 150ms; }
+    .modal-create:hover { background: #1D4ED8; }
+    .modal-create:disabled { opacity: 0.6; cursor: not-allowed; }
   `],
   template: `
+    <!-- New project name modal -->
+    @if (showNameModal()) {
+      <div class="modal-backdrop" (click)="cancelModal()">
+        <div class="modal-card" (click)="$event.stopPropagation()">
+          <div class="modal-title">Name your design</div>
+          <div class="modal-sub">Give your new interior design a name to get started.</div>
+          <input class="modal-input" type="text" placeholder="e.g. Living Room Redesign"
+            [(ngModel)]="newProjectName"
+            (keydown.enter)="confirmCreate()"
+            (keydown.escape)="cancelModal()"
+            #nameInput />
+          <div class="modal-actions">
+            <button class="modal-cancel" (click)="cancelModal()">Cancel</button>
+            <button class="modal-create" [disabled]="creating()" (click)="confirmCreate()">
+              {{ creating() ? 'Creating…' : 'Create Design' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
     <!-- Left Sidebar -->
     <nav class="sidebar">
       <!-- Logo -->
@@ -269,7 +304,9 @@ export class DashboardComponent implements OnInit {
   readonly creating = signal(false);
   readonly openMenuId = signal<string | null>(null);
   readonly renamingId = signal<string | null>(null);
+  readonly showNameModal = signal(false);
   renameValue = '';
+  newProjectName = '';
 
   readonly features = FEATURES;
 
@@ -282,12 +319,23 @@ export class DashboardComponent implements OnInit {
   }
 
   createScene(): void {
+    this.newProjectName = '';
+    this.showNameModal.set(true);
+    setTimeout(() => {
+      document.querySelector<HTMLInputElement>('.modal-input')?.focus();
+    }, 50);
+  }
+
+  confirmCreate(): void {
+    const name = this.newProjectName.trim() || 'Untitled Design';
     this.creating.set(true);
-    this.sceneService.create('Untitled Design').subscribe({
-      next: scene => this.router.navigate(['/studio', scene.id]),
+    this.sceneService.create(name).subscribe({
+      next: scene => { this.showNameModal.set(false); this.router.navigate(['/studio', scene.id]); },
       error: () => this.creating.set(false),
     });
   }
+
+  cancelModal(): void { this.showNameModal.set(false); }
 
   openScene(id: string): void {
     this.router.navigate(['/studio', id]);

@@ -2,26 +2,27 @@ import { Injectable, signal } from '@angular/core';
 
 export type StudioMode = 'select' | 'move' | 'rotate' | 'scale';
 export type ViewMode = '2d' | '3d';
-export type DrawTool = 'select' | 'pan' | 'wall' | 'measure' | 'rotate';
-export type SelectionState = 'none' | 'furniture' | 'room';
+export type DrawTool = 'select' | 'pan' | 'wall' | 'door' | 'window' | 'measure';
+export type SelectionState = 'none' | 'furniture' | 'wall' | 'room';
 export type CameraPreset = 'perspective' | 'top' | 'front' | 'side' | 'eye-level' | 'birds-eye' | 'corner' | 'walkthrough';
 export type TimeOfDay = 'dawn' | 'noon' | 'dusk' | 'night';
 export type FloorMaterial = 'wood' | 'tile' | 'marble' | 'concrete';
+export type Theme = 'dark' | 'light';
 
 @Injectable()
 export class StudioStateService {
+  readonly theme = signal<Theme>('dark');
   readonly viewMode = signal<ViewMode>('3d');
   readonly mode = signal<StudioMode>('select');
   readonly isSaving = signal(false);
-  readonly isPanelOpen = signal(true);
 
   readonly leftPanelVisible = signal(true);
-  readonly leftPanelMinimized = signal(false);
   readonly rightPanelVisible = signal(true);
   readonly topPanelVisible = signal(true);
 
   readonly selectionState = signal<SelectionState>('none');
   readonly selectedObjectId = signal<string | null>(null);
+  readonly selectedObjectName = signal<string | null>(null);
 
   readonly drawTool = signal<DrawTool>('select');
   readonly snapGrid = signal(true);
@@ -35,7 +36,6 @@ export class StudioStateService {
 
   readonly cameraPreset = signal<CameraPreset>('perspective');
   readonly fov = signal(60);
-  readonly clipNear = signal(10);
 
   readonly timeOfDay = signal<TimeOfDay>('noon');
   readonly lightTemperature = signal(4500);
@@ -60,6 +60,7 @@ export class StudioStateService {
   readonly totalPrice = signal(0);
   readonly roomSize = signal({ width: 5.2, depth: 4.1, height: 2.8 });
 
+  toggleTheme() { this.theme.update(t => t === 'dark' ? 'light' : 'dark'); }
   setViewMode(m: ViewMode) { this.viewMode.set(m); }
   setMode(m: StudioMode) { this.mode.set(m); }
   setDrawTool(t: DrawTool) { this.drawTool.set(t); }
@@ -71,17 +72,13 @@ export class StudioStateService {
   toggleSnap(key: 'grid' | 'wall' | 'angle' | 'center' | 'edge' | 'midpoint') {
     const map = {
       grid: this.snapGrid, wall: this.snapWall, angle: this.snapAngle,
-      center: this.snapCenter, edge: this.snapEdge, midpoint: this.snapMidpoint
+      center: this.snapCenter, edge: this.snapEdge, midpoint: this.snapMidpoint,
     };
     map[key].update(v => !v);
   }
 
   togglePanel(panel: 'left' | 'right' | 'top') {
-    const map = {
-      left: this.leftPanelVisible,
-      right: this.rightPanelVisible,
-      top: this.topPanelVisible
-    };
+    const map = { left: this.leftPanelVisible, right: this.rightPanelVisible, top: this.topPanelVisible };
     map[panel].update(v => !v);
   }
 }
