@@ -7,27 +7,29 @@ import { RendererService } from '../../services/renderer.service';
 import { SceneEngine } from '../../../../engines/scene/scene.engine';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
+import { FloorPlanService } from '../../services/floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPMeasure } from '../../services/floor-plan.service';
 
-// ─── 2D data model ────────────────────────────────────────────────────────────
-export interface Pt { x: number; y: number }
+// ─── 2D data model re-exports for template compatibility ──────────────────────
+export type Pt = import('../../services/floor-plan.service').Pt;
+export type WallMeta = import('../../services/floor-plan.service').WallMeta;
+export type DoorMeta = import('../../services/floor-plan.service').DoorMeta;
+export type WinMeta  = import('../../services/floor-plan.service').WinMeta;
+export type MeasureMeta = import('../../services/floor-plan.service').MeasureMeta;
 
-export interface WallMeta { thickness: number; height: number; material: string; color: string }
-export interface DoorMeta { width: number; height: number; swingDir: 'left' | 'right'; openAngle: number }
-export interface WinMeta  { width: number; height: number; sillH: number }
-export interface MeasureMeta { unit: 'm' | 'cm' | 'mm' }
+// Local aliases to keep template references working
+export type Wall    = FPWall;
+export type Door2D  = FPDoor;
+export type Win2D   = FPWindow;
+export type Measure = FPMeasure;
 
-export interface Wall    { id: string; start: Pt; end: Pt; meta: WallMeta }
-export interface Door2D  { id: string; pos: Pt; wallId: string | null; meta: DoorMeta }
-export interface Win2D   { id: string; pos: Pt; wallId: string | null; meta: WinMeta }
-export interface Measure { id: string; start: Pt; end: Pt; meta: MeasureMeta }
 export interface RoomLabel { id: string; cx: Pt; area: number }
-
-export type Elem2D = Wall | Door2D | Win2D | Measure;
+export type Elem2D = FPWall | FPDoor | FPWindow | FPMeasure;
 
 const PIXELS_PER_METER = 100; // 100 SVG units = 1 m
-const DEFAULT_WALL: WallMeta = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
-const DEFAULT_DOOR: DoorMeta = { width: 900,  height: 2100, swingDir: 'left',  openAngle: 90 };
-const DEFAULT_WIN:  WinMeta  = { width: 1200, height: 1100, sillH: 900 };
+const DEFAULT_WALL_META: WallMeta = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
+const DEFAULT_DOOR_META: DoorMeta = { width: 900, height: 2100, swingDir: 'left', openAngle: 90 };
+const DEFAULT_WIN_META:  WinMeta  = { width: 1200, height: 1100, sillH: 900 };
 
 function uid(): string { return Math.random().toString(36).slice(2, 9); }
 
@@ -38,7 +40,7 @@ function dist(a: Pt, b: Pt): number {
 }
 
 // Wall as thick polygon (two parallel lines + fill)
-function wallPolygon(w: Wall): string {
+function wallPolygon(w: FPWall): string {
   const dx = w.end.x - w.start.x;
   const dy = w.end.y - w.start.y;
   const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -54,12 +56,12 @@ function wallPolygon(w: Wall): string {
   return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z';
 }
 
-function wallAngle(w: Wall): number {
+function wallAngle(w: FPWall): number {
   return Math.atan2(w.end.y - w.start.y, w.end.x - w.start.x) * 180 / Math.PI;
 }
 
 // Compute door arc path: quarter-circle swing
-function doorPath(d: Door2D): string {
+function doorPath(d: FPDoor): string {
   const w = (d.meta.width / 1000) * PIXELS_PER_METER;
   const sweep = d.meta.swingDir === 'right' ? 1 : 0;
   const ex = w; const ey = d.meta.swingDir === 'right' ? -w : w;
@@ -105,16 +107,8 @@ function rulerInterval(zoom: number): number {
     .zoom-btn:hover { background: rgba(255,255,255,0.1); }
     .zoom-pct       { font-size: 11px; color: var(--muted); min-width: 38px; text-align: center; font-weight: 600; }
 
-    /* ── Upload / toolbar ── */
-    .canvas-toolbar  { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-    .ct-btn          { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 130ms; }
-    .ct-btn:hover    { background: rgba(255,255,255,0.06); color: var(--fg); }
-    .ct-btn.danger:hover { background: rgba(239,68,68,0.15); color: #F87171; border-color: rgba(239,68,68,0.3); }
-    .ct-divider      { width: 1px; height: 16px; background: var(--border); }
-    .ct-unit         { font-size: 10px; color: var(--muted); padding: 0 4px; }
-
     /* ── Banner ── */
-    .banner { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); background: rgba(234,88,12,0.92); color: white; padding: 7px 16px; border-radius: 6px; font-size: 12px; z-index: 20; white-space: nowrap; }
+    .banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(234,88,12,0.92); color: white; padding: 7px 16px; border-radius: 6px; font-size: 12px; z-index: 20; white-space: nowrap; }
 
     /* ── Cursor coord readout ── */
     .coord-readout { position: absolute; bottom: 12px; left: 12px; font-size: 10px; color: var(--muted); font-family: monospace; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; z-index: 10; pointer-events: none; }
@@ -129,22 +123,6 @@ function rulerInterval(zoom: number): number {
 
         <!-- banner -->
         @if (banner) { <div class="banner">{{ banner }}</div> }
-
-        <!-- top-center toolbar (upload, delete, units) -->
-        <div class="canvas-toolbar">
-          <button class="ct-btn" (click)="fileInput.click()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Import DXF
-          </button>
-          <input #fileInput type="file" accept=".dxf,.dwg" style="display:none" (change)="onFileUpload($event)" />
-          <div class="ct-divider"></div>
-          <button class="ct-btn" (click)="deleteSelected()" [disabled]="!selectedId">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-            Delete
-          </button>
-          <div class="ct-divider"></div>
-          <span class="ct-unit">1 grid = 0.5 m</span>
-        </div>
 
         <!-- ruler row (horizontal) -->
         <div class="ruler-h-wrap">
@@ -233,8 +211,13 @@ function rulerInterval(zoom: number): number {
                 </marker>
               </defs>
 
+              <!-- canvas background -->
+              <rect width="100%" height="100%" fill="var(--canvas-bg)"/>
+
               <!-- grid background (full SVG area, not transformed) -->
-              <rect width="100%" height="100%" fill="url(#majorGrid)"/>
+              @if (state.showGrid()) {
+                <rect width="100%" height="100%" fill="url(#majorGrid)"/>
+              }
 
               <!-- viewport transform group -->
               <g [attr.transform]="viewTransform()">
@@ -276,7 +259,7 @@ function rulerInterval(zoom: number): number {
 
                 <!-- ── Doors ── -->
                 @for (d of doors; track d.id) {
-                  <g [attr.transform]="'translate(' + d.pos.x + ',' + d.pos.y + ')'"
+                  <g [attr.transform]="'translate(' + d.pos.x + ',' + d.pos.y + ') rotate(' + d.angle + ')'"
                     style="cursor:pointer"
                     (mousedown)="selectElem(d.id, 'door', $event)">
                     <path [attr.d]="doorArc(d)"
@@ -300,7 +283,7 @@ function rulerInterval(zoom: number): number {
 
                 <!-- ── Windows ── -->
                 @for (w of windows; track w.id) {
-                  <g [attr.transform]="'translate(' + w.pos.x + ',' + w.pos.y + ')'"
+                  <g [attr.transform]="'translate(' + w.pos.x + ',' + w.pos.y + ') rotate(' + w.angle + ')'"
                     style="cursor:pointer"
                     (mousedown)="selectElem(w.id, 'window', $event)">
                     @let ww = (w.meta.width / 1000) * 100;
@@ -443,18 +426,20 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   @ViewChild('svg2d')     svg2dRef?:    ElementRef<SVGSVGElement>;
   @ViewChild('canvasArea') canvasAreaRef?: ElementRef<HTMLDivElement>;
 
-  readonly state   = inject(StudioStateService);
-  readonly history = inject(HistoryService);
+  readonly state     = inject(StudioStateService);
+  readonly history   = inject(HistoryService);
+  readonly floorPlan = inject(FloorPlanService);
   private readonly renderer    = inject(RendererService);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly injector    = inject(Injector);
   private resizeObserver!: ResizeObserver;
 
-  // ─── 2D scene data ──────────────────────────────────────────────────────────
-  walls:    Wall[]    = [];
-  doors:    Door2D[]  = [];
-  windows:  Win2D[]   = [];
-  measures: Measure[] = [];
+  // ─── 2D scene data via FloorPlanService ─────────────────────────────────────
+  get walls():    FPWall[]    { return this.floorPlan.walls(); }
+  get doors():    FPDoor[]    { return this.floorPlan.doors(); }
+  get windows():  FPWindow[]  { return this.floorPlan.windows(); }
+  get measures(): FPMeasure[] { return this.floorPlan.measures(); }
+
   selectedId: string | null = null;
   selectedType: 'wall' | 'door' | 'window' | 'measure' | null = null;
 
@@ -554,12 +539,13 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   // ─── Room labels (basic centroid from wall set) ──────────────────────────────
   readonly roomLabels = computed((): RoomLabel[] => {
-    if (this.walls.length < 3) return [];
-    const allX = this.walls.flatMap(w => [w.start.x, w.end.x]);
-    const allY = this.walls.flatMap(w => [w.start.y, w.end.y]);
+    const walls = this.floorPlan.walls();
+    if (walls.length < 3) return [];
+    const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+    const allY = walls.flatMap(w => [w.start.y, w.end.y]);
     const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
     const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
-    const totalLen = this.walls.reduce((s, w) => s + dist(w.start, w.end), 0);
+    const totalLen = walls.reduce((s, w) => s + dist(w.start, w.end), 0);
     const areaM2 = (totalLen / PIXELS_PER_METER) ** 2 / (4 * Math.PI) * Math.PI;
     return [{ id: 'room0', cx: { x: cx, y: cy }, area: +areaM2.toFixed(1) }];
   });
@@ -592,6 +578,10 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       this.renderer.init(canvas);
       effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
       effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
+      // Sync 2D floor plan walls into 3D
+      effect(() => {
+        this.renderer.syncFloorPlan(this.floorPlan.walls());
+      }, { injector: this.injector });
       this.resizeObserver = new ResizeObserver(entries => {
         const { width, height } = entries[0].contentRect;
         if (width > 0 && height > 0) this.renderer.resize(width, height);
@@ -642,7 +632,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     // 2. Wall endpoint snap (override grid if close)
     if (this.state.snapWall()) {
       const threshold = 10 / this.zoom();
-      for (const w of this.walls) {
+      for (const w of this.floorPlan.walls()) {
         for (const ep of [w.start, w.end]) {
           if (dist(pt, ep) < threshold) return ep;
         }
@@ -656,6 +646,25 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (!svg) return { x: 0, y: 0 };
     const rect = svg.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  // ─── Wall snapping for doors/windows ────────────────────────────────────────
+  private nearestWallPoint(pt: Pt): { pos: Pt; angle: number; wallId: string } | null {
+    let best: { pos: Pt; angle: number; wallId: string; d: number } | null = null;
+    for (const w of this.floorPlan.walls()) {
+      const dx = w.end.x - w.start.x;
+      const dy = w.end.y - w.start.y;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1) continue;
+      const t = Math.max(0, Math.min(1, ((pt.x - w.start.x) * dx + (pt.y - w.start.y) * dy) / len2));
+      const proj = { x: w.start.x + t * dx, y: w.start.y + t * dy };
+      const d = Math.sqrt((pt.x - proj.x) ** 2 + (pt.y - proj.y) ** 2);
+      if (!best || d < best.d) {
+        best = { pos: proj, angle: Math.atan2(dy, dx) * 180 / Math.PI, wallId: w.id, d };
+      }
+    }
+    // Only snap if within reasonable threshold (200px world units)
+    return best && best.d < 200 / this.zoom() ? best : null;
   }
 
   // ─── Mouse events ────────────────────────────────────────────────────────────
@@ -681,13 +690,15 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       } else {
         const end = world;
         if (tool === 'wall') {
-          this.walls = [...this.walls, { id: uid(), start: ds, end, meta: { ...DEFAULT_WALL } }];
+          this.floorPlan.snapshot();
+          this.floorPlan.walls.update(ws => [...ws, { id: uid(), start: ds, end, meta: { ...DEFAULT_WALL_META } }]);
           this.history.push('Draw wall');
           // chain: start next wall from end of this one
           this.drawStart.set(end);
           this.drawCurrent.set(end);
         } else {
-          this.measures = [...this.measures, { id: uid(), start: ds, end, meta: { unit: 'm' } }];
+          this.floorPlan.snapshot();
+          this.floorPlan.measures.update(ms => [...ms, { id: uid(), start: ds, end, meta: { unit: 'm' as const } }]);
           this.history.push('Add measure');
           this.drawStart.set(null);
           this.drawCurrent.set(null);
@@ -697,12 +708,22 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }
 
     if (tool === 'door') {
-      this.doors = [...this.doors, { id: uid(), pos: world, wallId: null, meta: { ...DEFAULT_DOOR } }];
+      const snapped = this.nearestWallPoint(world);
+      const pos  = snapped ? snapped.pos  : world;
+      const angle = snapped ? snapped.angle : 0;
+      const wallId = snapped ? snapped.wallId : null;
+      this.floorPlan.snapshot();
+      this.floorPlan.doors.update(ds => [...ds, { id: uid(), pos, angle, wallId, meta: { ...DEFAULT_DOOR_META } }]);
       this.history.push('Place door');
       return;
     }
     if (tool === 'window') {
-      this.windows = [...this.windows, { id: uid(), pos: world, wallId: null, meta: { ...DEFAULT_WIN } }];
+      const snapped = this.nearestWallPoint(world);
+      const pos   = snapped ? snapped.pos   : world;
+      const angle  = snapped ? snapped.angle  : 0;
+      const wallId = snapped ? snapped.wallId : null;
+      this.floorPlan.snapshot();
+      this.floorPlan.windows.update(ws => [...ws, { id: uid(), pos, angle, wallId, meta: { ...DEFAULT_WIN_META } }]);
       this.history.push('Place window');
       return;
     }
@@ -778,10 +799,11 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   deleteSelected(): void {
     if (!this.selectedId) return;
     const id = this.selectedId;
-    this.walls    = this.walls.filter(w => w.id !== id);
-    this.doors    = this.doors.filter(d => d.id !== id);
-    this.windows  = this.windows.filter(w => w.id !== id);
-    this.measures = this.measures.filter(m => m.id !== id);
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => ws.filter(w => w.id !== id));
+    this.floorPlan.doors.update(ds => ds.filter(d => d.id !== id));
+    this.floorPlan.windows.update(ws => ws.filter(w => w.id !== id));
+    this.floorPlan.measures.update(ms => ms.filter(m => m.id !== id));
     this.history.push('Delete element');
     this.selectedId = null;
     this.selectedType = null;
@@ -793,9 +815,10 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   zoomOut(): void { this.zoom.update(z => Math.max(0.1, z / 1.25)); }
 
   fitView(): void {
-    if (this.walls.length === 0) { this.zoom.set(1); this.panX.set(50); this.panY.set(50); return; }
-    const allX = this.walls.flatMap(w => [w.start.x, w.end.x]);
-    const allY = this.walls.flatMap(w => [w.start.y, w.end.y]);
+    const walls = this.floorPlan.walls();
+    if (walls.length === 0) { this.zoom.set(1); this.panX.set(50); this.panY.set(50); return; }
+    const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+    const allY = walls.flatMap(w => [w.start.y, w.end.y]);
     const minX = Math.min(...allX) - 60, maxX = Math.max(...allX) + 60;
     const minY = Math.min(...allY) - 60, maxY = Math.max(...allY) + 60;
     const rangeX = maxX - minX, rangeY = maxY - minY;
@@ -807,14 +830,14 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Wall rendering helpers ──────────────────────────────────────────────────
-  wallPoly(w: Wall): string { return wallPolygon(w); }
+  wallPoly(w: FPWall): string { return wallPolygon(w); }
 
-  wallLabel(w: Wall): string {
+  wallLabel(w: FPWall): string {
     const d = dist(w.start, w.end) / PIXELS_PER_METER;
     return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
   }
 
-  wallLabelTransform(w: Wall): string {
+  wallLabelTransform(w: FPWall): string {
     const angle = wallAngle(w);
     const cx = (w.start.x + w.end.x) / 2;
     const cy = (w.start.y + w.end.y) / 2;
@@ -827,14 +850,14 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   previewWallPoly(): string {
     const s = this.drawStart(); const c = this.drawCurrent();
     if (!s || !c) return '';
-    return wallPolygon({ id: '', start: s, end: c, meta: { ...DEFAULT_WALL } });
+    return wallPolygon({ id: '', start: s, end: c, meta: { ...DEFAULT_WALL_META } });
   }
 
   // ─── Door rendering ──────────────────────────────────────────────────────────
-  doorArc(d: Door2D): string { return doorPath(d); }
+  doorArc(d: FPDoor): string { return doorPath(d); }
 
   // ─── Measure label ───────────────────────────────────────────────────────────
-  measureLabel(m: Measure): string {
+  measureLabel(m: FPMeasure): string {
     const d = dist(m.start, m.end) / PIXELS_PER_METER;
     return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
   }
@@ -853,7 +876,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     reader.onload = ev => {
       const parsed = this.parseDxf(ev.target?.result as string);
       if (parsed.length === 0) { this.showBanner('No LINE entities found in DXF'); return; }
-      this.walls = parsed;
+      this.floorPlan.snapshot();
+      this.floorPlan.walls.set(parsed);
       this.history.push('Import DXF');
       this.fitView();
     };
@@ -867,8 +891,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.bannerTimer = setTimeout(() => { this.banner = null; }, 5000);
   }
 
-  private parseDxf(text: string): Wall[] {
-    const walls: Wall[] = [];
+  private parseDxf(text: string): FPWall[] {
+    const walls: FPWall[] = [];
     const lines = text.split('\n').map(l => l.trim());
     for (let i = 0; i < lines.length - 1; i++) {
       if (lines[i] === '0' && (lines[i + 1] === 'LINE' || lines[i + 1] === 'LWPOLYLINE')) {
@@ -879,7 +903,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
             if (!isNaN(v)) c[lines[j]] = v;
           }
           if (c['10'] !== undefined)
-            walls.push({ id: uid(), start: { x: c['10'], y: -(c['20'] ?? 0) }, end: { x: c['11'] ?? 0, y: -(c['21'] ?? 0) }, meta: { ...DEFAULT_WALL } });
+            walls.push({ id: uid(), start: { x: c['10'], y: -(c['20'] ?? 0) }, end: { x: c['11'] ?? 0, y: -(c['21'] ?? 0) }, meta: { ...DEFAULT_WALL_META } });
         }
       }
     }

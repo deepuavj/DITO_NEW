@@ -3,8 +3,13 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { StudioStateService } from '../../services/studio-state.service';
+import { FloorPlanService } from '../../services/floor-plan.service';
+import type { FPWall } from '../../services/floor-plan.service';
 import type { Asset } from '../../../../core/models/asset.models';
 import type { DrawTool } from '../../services/studio-state.service';
+
+function uid(): string { return Math.random().toString(36).slice(2, 9); }
+const DEFAULT_WALL_META = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
 
 interface FurnitureItem { id: string; name: string; price: number; svgPath: string; }
 interface FurnitureCategory {
@@ -108,6 +113,7 @@ function svg(paths: string, cls = ''): string {
     .import-btn { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 8px 10px; padding: 9px; background: var(--input-bg); border: 1px dashed var(--border); border-radius: 7px; color: var(--muted); font-size: 11px; cursor: pointer; transition: all 150ms; }
     .import-btn:hover { border-color: rgba(59,130,246,0.4); color: #93B4FF; }
     .import-btn svg { width: 14px; height: 14px; }
+    .dxf-msg { font-size: 10px; color: #F59E0B; padding: 4px 10px; }
   `],
   template: `
     <div class="panel">
@@ -149,6 +155,15 @@ function svg(paths: string, cls = ''): string {
         <div class="panel-header">DRAWING ELEMENTS</div>
         <div class="scroll">
           <div class="draw-section">
+            <div class="draw-label">IMPORT</div>
+            <button class="import-btn" (click)="dxfInput.click()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Import DXF / Floor Plan
+            </button>
+            <input #dxfInput type="file" accept=".dxf,.dwg" style="display:none" (change)="onDxfUpload($event)"/>
+            @if (dxfBanner) { <div class="dxf-msg">{{ dxfBanner }}</div> }
+          </div>
+          <div class="draw-section">
             <div class="draw-label">TOOLS</div>
             @for (item of draw2dItems; track item.tool) {
               <div class="draw-item" [class.active]="state.drawTool()===item.tool" (click)="state.setDrawTool(item.tool)">
@@ -179,8 +194,11 @@ function svg(paths: string, cls = ''): string {
 export class FurnitureLibraryComponent {
   readonly state = inject(StudioStateService);
   private readonly san = inject(DomSanitizer);
+  readonly floorPlan = inject(FloorPlanService);
   readonly assetSelected = output<Asset>();
   searchQuery = '';
+  dxfBanner: string | null = null;
+  private dxfBannerTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly SEARCH_IC = SEARCH_IC;
   readonly CHEVRON_R = CHEVRON_R;
@@ -248,5 +266,61 @@ export class FurnitureLibraryComponent {
       glbUrl: '', metadata: {}, tags: [],
       isPublic: false, createdAt: '', updatedAt: '',
     } as unknown as Asset;
+  }
+
+  onDxfUpload(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.name.toLowerCase().endsWith('.dwg')) {
+      this.showDxfBanner('DWG is proprietary — export to DXF from AutoCAD first');
+      input.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const parsed = this.parseDxf(ev.target?.result as string);
+      if (parsed.length === 0) { this.showDxfBanner('No LINE entities found in DXF'); return; }
+      this.floorPlan.snapshot();
+      this.floorPlan.walls.set(parsed);
+      this.showDxfBanner(`Imported ${parsed.length} wall segments`);
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+  private showDxfBanner(msg: string): void {
+    this.dxfBanner = msg;
+    if (this.dxfBannerTimer) clearTimeout(this.dxfBannerTimer);
+    this.dxfBannerTimer = setTimeout(() => { this.dxfBanner = null; }, 5000);
+  }
+
+  private parseDxf(text: string): FPWall[] {
+    const walls: FPWall[] = [];
+    const lines = text.split('\n').map(l => l.trim());
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (lines[i] === '0' && lines[i + 1] === 'LINE') {
+        const c: Record<string, number> = {};
+        for (let j = i + 2; j < Math.min(i + 40, lines.length - 1); j += 2) {
+          const v = parseFloat(lines[j + 1]);
+          if (!isNaN(v)) c[lines[j]] = v;
+        }
+        if (c['10'] !== undefined)
+          walls.push({ id: uid(), start: { x: c['10'], y: -(c['20'] ?? 0) }, end: { x: c['11'] ?? 0, y: -(c['21'] ?? 0) }, meta: { ...DEFAULT_WALL_META } });
+      }
+    }
+    if (!walls.length) return walls;
+    const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+    const allY = walls.flatMap(w => [w.start.y, w.end.y]);
+    const minX = Math.min(...allX), maxX = Math.max(...allX);
+    const minY = Math.min(...allY), maxY = Math.max(...allY);
+    const sc   = 600 / (Math.max(maxX - minX, maxY - minY) || 1);
+    const ox   = (600 - (maxX - minX) * sc) / 2;
+    const oy   = (600 - (maxY - minY) * sc) / 2;
+    return walls.map(w => ({
+      ...w,
+      start: { x: (w.start.x - minX) * sc + ox, y: (w.start.y - minY) * sc + oy },
+      end:   { x: (w.end.x   - minX) * sc + ox, y: (w.end.y   - minY) * sc + oy },
+    }));
   }
 }

@@ -2,6 +2,7 @@ import { Component, inject, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
+import { FloorPlanService } from '../../services/floor-plan.service';
 import { SafeHtmlPipe } from '../../../../shared/pipes/safe-html.pipe';
 import type { DrawTool, StudioMode } from '../../services/studio-state.service';
 
@@ -96,10 +97,14 @@ const IC = {
       <div class="divider"></div>
 
       <!-- undo / redo -->
-      <button class="icon-btn" title="Undo (Ctrl+Z)" [disabled]="!history.canUndo()" (click)="history.undo()">
+      <button class="icon-btn" title="Undo (Ctrl+Z)"
+        [disabled]="state.viewMode()==='2d' ? !floorPlan.canUndo() : !history.canUndo()"
+        (click)="doUndo()">
         <span class="ic" [innerHTML]="icons.undo | safeHtml"></span>
       </button>
-      <button class="icon-btn" title="Redo (Ctrl+Shift+Z)" [disabled]="!history.canRedo()" (click)="history.redo()">
+      <button class="icon-btn" title="Redo (Ctrl+Shift+Z)"
+        [disabled]="state.viewMode()==='2d' ? !floorPlan.canRedo() : !history.canRedo()"
+        (click)="doRedo()">
         <span class="ic" [innerHTML]="icons.redo | safeHtml"></span>
       </button>
 
@@ -132,9 +137,20 @@ const IC = {
 export class StudioToolbarComponent {
   readonly state = inject(StudioStateService);
   readonly history = inject(HistoryService);
+  readonly floorPlan = inject(FloorPlanService);
   readonly saveClicked = output();
   readonly renderClicked = output();
   readonly icons = IC;
+
+  doUndo(): void {
+    if (this.state.viewMode() === '2d') this.floorPlan.undo();
+    else this.history.undo();
+  }
+
+  doRedo(): void {
+    if (this.state.viewMode() === '2d') this.floorPlan.redo();
+    else this.history.redo();
+  }
 
   readonly tools3d: { mode: StudioMode; label: string; icon: string }[] = [
     { mode: 'select', label: 'Select', icon: IC.select },
