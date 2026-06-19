@@ -48,8 +48,8 @@ export class RendererService implements OnDestroy {
   private floorMeshMap = new Map<string, THREE.Mesh>();
 
   syncScene(): void {
-    // Only sync furniture objects — room/walls come from syncFloorPlan
-    const objects = this.sceneEngine.objects();
+    if (!this.threeScene) return;
+    const objects = this.sceneEngine?.objects() ?? [];
     objects.forEach(obj => this.syncObject(obj));
 
     const objectIds = new Set(objects.map(o => o.id));
@@ -311,7 +311,7 @@ export class RendererService implements OnDestroy {
     const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 600;
     this.renderer.setSize(w, h, false);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
   }
@@ -410,8 +410,9 @@ export class RendererService implements OnDestroy {
 
   private loop(): void {
     this.animFrameId = requestAnimationFrame(() => this.loop());
+    if (!this.controls || !this.renderer || !this.threeScene) return;
     this.controls.update();
-    this.syncScene(); // always sync furniture from SceneEngine — guaranteed every frame
+    this.syncScene();
     this.renderer.render(this.threeScene, this.camera);
   }
 }
