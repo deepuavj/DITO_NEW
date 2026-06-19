@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, effect } from '@angular/core';
-import { CommonModule, DecimalPipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
@@ -10,7 +10,7 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
 
 @Component({
   selector: 'dito-properties-panel',
-  imports: [CommonModule, FormsModule, DecimalPipe],
+  imports: [CommonModule, FormsModule],
   styles: [`
     :host { display: flex; flex-direction: column; width: 240px; flex-shrink: 0; }
     .panel { display: flex; flex-direction: column; width: 240px; height: 100%; background: var(--panel-bg); border-left: 1px solid var(--border); overflow: hidden; }
