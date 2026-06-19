@@ -17,9 +17,17 @@ export interface RoomConfig {
   floorMaterialId?: string;
 }
 
+export interface FloorPlanData {
+  walls: import('./floor-plan.models').FPWall[];
+  doors: import('./floor-plan.models').FPDoor[];
+  windows: import('./floor-plan.models').FPWindow[];
+  measures: import('./floor-plan.models').FPMeasure[];
+}
+
 export interface SceneData {
   room: RoomConfig;
   objects: SceneObject[];
+  floorPlan?: FloorPlanData;
   camera?: { position: [number, number, number]; target: [number, number, number] };
   lighting?: { ambientIntensity: number; sunPosition: [number, number, number] };
 }

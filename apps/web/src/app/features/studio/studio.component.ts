@@ -127,7 +127,16 @@ export class StudioComponent implements OnInit, OnDestroy {
     const sceneId = this.id();
     if (!sceneId) return;
     this.state.isSaving.set(true);
-    this.sceneService.save(sceneId, this.sceneEngine.serialize())
+    const sceneData = {
+      ...this.sceneEngine.serialize(),
+      floorPlan: {
+        walls:    this.floorPlan.walls(),
+        doors:    this.floorPlan.doors(),
+        windows:  this.floorPlan.windows(),
+        measures: this.floorPlan.measures(),
+      },
+    };
+    this.sceneService.save(sceneId, sceneData)
       .subscribe({
         error: () => { this.state.isSaving.set(false); },
         complete: () => {
@@ -143,7 +152,16 @@ export class StudioComponent implements OnInit, OnDestroy {
 
   private loadScene(id: string): void {
     this.sceneService.getById(id).subscribe({
-      next: scene => this.sceneEngine.loadSceneData(scene.sceneData),
+      next: scene => {
+        this.sceneEngine.loadSceneData(scene.sceneData);
+        const fp = scene.sceneData.floorPlan;
+        if (fp) {
+          this.floorPlan.walls.set(fp.walls ?? []);
+          this.floorPlan.doors.set(fp.doors ?? []);
+          this.floorPlan.windows.set(fp.windows ?? []);
+          this.floorPlan.measures.set(fp.measures ?? []);
+        }
+      },
       error: () => this.router.navigate(['/dashboard']),
     });
   }
