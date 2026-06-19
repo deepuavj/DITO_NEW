@@ -112,7 +112,16 @@ export class StudioComponent implements OnInit, OnDestroy {
 
   onAssetDrop(asset: Asset): void {
     this.metadataEngine.register(asset.id, asset.metadata);
-    this.sceneEngine.addObject(asset.id, asset.name, [0, 0, 0]);
+    // Place at room center derived from wall bounding box, not world origin
+    const walls = this.floorPlan.walls();
+    let cx = 3.5, cz = 3;
+    if (walls.length > 0) {
+      const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+      const allZ = walls.flatMap(w => [w.start.y, w.end.y]);
+      cx = (Math.min(...allX) + Math.max(...allX)) / 2 / 100;
+      cz = (Math.min(...allZ) + Math.max(...allZ)) / 2 / 100;
+    }
+    this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
     this.history.push(`Added ${asset.name}`);
   }
 

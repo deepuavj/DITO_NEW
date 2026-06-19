@@ -340,9 +340,9 @@ export class RendererService implements OnDestroy {
     this.threeScene.add(ground);
     this.threeScene.fog = new THREE.Fog(0xD4E9F7, 30, 150);
 
-    // Grid helper — 20×20 grid at 1m spacing, toggled by showGrid()
-    this.gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0xCCCCCC);
-    this.gridHelper.position.set(3.5, 0.01, 3);
+    // Infinite-looking grid — 500×500m at 1m spacing, centered at world origin
+    this.gridHelper = new THREE.GridHelper(500, 500, 0x888888, 0xCCCCCC);
+    this.gridHelper.position.set(0, 0.01, 0);
     // material can be Material | Material[] — handle both cases
     const mats = Array.isArray(this.gridHelper.material)
       ? this.gridHelper.material
