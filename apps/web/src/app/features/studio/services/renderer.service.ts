@@ -7,6 +7,9 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SceneEngine } from '../../../engines/scene/scene.engine';
 import { MaterialEngine } from '../../../engines/material/material.engine';
 import type { SceneObject } from '../../../core/models/scene.models';
+import type { FPWall } from './floor-plan.service';
+
+const PIXELS_PER_METER = 100;
 
 /**
  * RendererService wraps Three.js. It is a pure rendering layer.
@@ -24,6 +27,7 @@ export class RendererService implements OnDestroy {
   private controls!: OrbitControls;
   private animFrameId = 0;
   private meshMap = new Map<string, THREE.Group>();
+  private wallMeshMap = new Map<string, THREE.Mesh>();
   private readonly loader = new GLTFLoader();
 
   readonly isReady = signal(false);
@@ -52,6 +56,47 @@ export class RendererService implements OnDestroy {
     this.meshMap.forEach((_, id) => {
       if (!objectIds.has(id) && id !== '__room__') this.removeFromScene(id);
     });
+  }
+
+  syncFloorPlan(walls: FPWall[]): void {
+    const wallIds = new Set(walls.map(w => w.id));
+
+    // Remove walls no longer in the array
+    this.wallMeshMap.forEach((mesh, id) => {
+      if (!wallIds.has(id)) {
+        this.threeScene.remove(mesh);
+        this.wallMeshMap.delete(id);
+      }
+    });
+
+    for (const wall of walls) {
+      const dx = wall.end.x - wall.start.x;
+      const dy = wall.end.y - wall.start.y;
+      const length = Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_METER;
+      const height = wall.meta.height / 1000;
+      const thickness = wall.meta.thickness / 1000;
+
+      const cx = ((wall.start.x + wall.end.x) / 2) / PIXELS_PER_METER;
+      const cz = ((wall.start.y + wall.end.y) / 2) / PIXELS_PER_METER;
+      const cy = height / 2;
+      const rotY = -Math.atan2(dy, dx);
+
+      let mesh = this.wallMeshMap.get(wall.id);
+      if (!mesh) {
+        const geo = new THREE.BoxGeometry(1, 1, 1);
+        const mat = new THREE.MeshStandardMaterial({ color: wall.meta.color, roughness: 0.9 });
+        mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        this.threeScene.add(mesh);
+        this.wallMeshMap.set(wall.id, mesh);
+      }
+
+      mesh.scale.set(length, height, thickness);
+      mesh.position.set(cx, cy, cz);
+      mesh.rotation.set(0, rotY, 0);
+      (mesh.material as THREE.MeshStandardMaterial).color.set(wall.meta.color);
+    }
   }
 
   private syncObject(obj: SceneObject): void {
