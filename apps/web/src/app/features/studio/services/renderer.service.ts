@@ -29,6 +29,7 @@ export class RendererService implements OnDestroy {
   private meshMap = new Map<string, THREE.Group>();
   private wallMeshMap = new Map<string, THREE.Mesh>();
   private readonly loader = new GLTFLoader();
+  private gridHelper!: THREE.GridHelper;
 
   readonly isReady = signal(false);
 
@@ -336,18 +337,28 @@ export class RendererService implements OnDestroy {
     ground.receiveShadow = true;
     this.threeScene.add(ground);
     this.threeScene.fog = new THREE.Fog(0xD4E9F7, 30, 150);
+
+    // Grid helper — 20×20 grid at 1m spacing, toggled by showGrid()
+    this.gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0xCCCCCC);
+    this.gridHelper.position.set(3.5, 0.01, 3);
+    this.gridHelper.material.transparent = true;
+    this.gridHelper.material.opacity = 0.4;
+    this.threeScene.add(this.gridHelper);
   }
+
+  setGridVisible(v: boolean): void { if (this.gridHelper) this.gridHelper.visible = v; }
 
   private setupCamera(canvas: HTMLCanvasElement): void {
     this.camera = new THREE.PerspectiveCamera(
-      45,
+      50,
       canvas.clientWidth / canvas.clientHeight,
       0.1,
-      100,
+      200,
     );
-    // Default room center: walls span 1-6m X, 1-5m Z → center ~(3.5, 0, 3)
-    this.camera.position.set(3.5, 5, 10);
-    this.camera.lookAt(3.5, 0, 3);
+    // Position camera INSIDE the room near the top-left corner so walls
+    // don't block the view — default room spans X:1-6m, Z:1-5m
+    this.camera.position.set(1.8, 2.5, 1.8);
+    this.camera.lookAt(3.5, 0.8, 3.0);
   }
 
   private setupLights(): void {
@@ -377,7 +388,8 @@ export class RendererService implements OnDestroy {
     this.controls.minDistance = 1;
     this.controls.maxDistance = 20;
     this.controls.maxPolarAngle = Math.PI / 2;
-    this.controls.target.set(3.5, 0, 3);
+    this.controls.target.set(3.5, 0.8, 3.0);
+    this.controls.maxDistance = 30;
   }
 
   private removeFromScene(id: string): void {

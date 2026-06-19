@@ -613,6 +613,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       const selType = this.floorPlan.selectedType();
       if (selType !== 'wall') this.renderer.highlightWall(null);
     }, { injector: this.injector });
+    // Wire toolbar toggles to the 3D renderer
+    effect(() => { this.renderer.setGridVisible(this.state.showGrid()); }, { injector: this.injector });
     this.resizeObserver = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) this.renderer.resize(width, height);
