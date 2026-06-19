@@ -85,10 +85,20 @@ function rulerInterval(zoom: number): number {
   providers: [RendererService],
   styles: [`
     :host { display: flex; flex-direction: column; width: 100%; height: 100%; position: relative; overflow: hidden; }
+    /* Both panels are stacked absolutely; only the active one is on top */
+    .panel-3d, .canvas-2d {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      transition: none;
+    }
+    .panel-3d.hidden, .canvas-2d.hidden {
+      z-index: -1; pointer-events: none; visibility: hidden;
+    }
+    .panel-3d.visible, .canvas-2d.visible { z-index: 1; }
+
     canvas { display: block; width: 100%; height: 100%; outline: none; }
 
     /* ── 2D container ── */
-    .canvas-2d { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--canvas-bg, #F4F5F7); display: flex; flex-direction: column; }
+    .canvas-2d { overflow: hidden; background: var(--canvas-bg, #F4F5F7); display: flex; flex-direction: column; }
 
     /* ── Ruler + canvas layout ── */
     .canvas-2d-body { display: flex; flex: 1; min-height: 0; }
@@ -115,12 +125,13 @@ function rulerInterval(zoom: number): number {
     .coord-readout { position: absolute; bottom: 12px; left: 12px; font-size: 10px; color: var(--muted); font-family: monospace; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; z-index: 10; pointer-events: none; }
   `],
   template: `
-    @if (state.viewMode() === '3d') {
-      <!-- ── 3D WebGL canvas ── -->
+    <!-- ── 3D WebGL canvas (always in DOM so OrbitControls stays bound) ── -->
+    <div class="panel-3d" [class.visible]="state.viewMode() === '3d'" [class.hidden]="state.viewMode() !== '3d'">
       <canvas #canvas (click)="onCanvasClick($event)" (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)" tabindex="0"></canvas>
-    } @else {
-      <!-- ── 2D Floor Plan ── -->
-      <div class="canvas-2d">
+    </div>
+
+    <!-- ── 2D Floor Plan ── -->
+    <div class="canvas-2d" [class.visible]="state.viewMode() !== '3d'" [class.hidden]="state.viewMode() === '3d'">
 
         <!-- banner -->
         @if (banner) { <div class="banner">{{ banner }}</div> }
@@ -419,7 +430,6 @@ function rulerInterval(zoom: number): number {
           </div><!-- canvas-area -->
         </div><!-- canvas-2d-body -->
       </div><!-- canvas-2d -->
-    }
   `,
 })
 export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
@@ -555,28 +565,19 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
   ngAfterViewInit(): void {
-    if (this.state.viewMode() === '3d') {
-      this.init3D();
-    } else {
-      this.observeCanvasSize();
-    }
-    // Watch for switch from 2D→3D; retry until canvas element is in DOM
+    this.observeCanvasSize();
+    // Lazily init 3D on first switch to 3D mode.
+    // Canvas is always in DOM (CSS-hidden when in 2D), so no retry needed.
     effect(() => {
       if (this.state.viewMode() === '3d' && !this.threeInitialized) {
-        this.tryInit3D();
+        // Use rAF to let CSS layout flush so the canvas has real dimensions
+        requestAnimationFrame(() => this.init3D());
       }
     }, { injector: this.injector });
-  }
-
-  private tryInit3D(): void {
-    const canvas = this.canvasRef?.nativeElement;
-    const parent = canvas?.parentElement;
-    // Wait until canvas is in DOM and has non-zero layout dimensions
-    if (!canvas || (canvas.clientWidth === 0 && (parent?.clientWidth ?? 0) === 0)) {
-      requestAnimationFrame(() => this.tryInit3D());
-      return;
+    // Init immediately if starting in 3D
+    if (this.state.viewMode() === '3d') {
+      this.init3D();
     }
-    this.init3D();
   }
 
   private observeCanvasSize(): void {
@@ -615,11 +616,12 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }, { injector: this.injector });
     // Wire toolbar toggles to the 3D renderer
     effect(() => { this.renderer.setGridVisible(this.state.showGrid()); }, { injector: this.injector });
-    this.resizeObserver = new ResizeObserver(entries => {
+    const panel3d = canvas.parentElement!; // .panel-3d wrapper
+    const resizeObs3d = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) this.renderer.resize(width, height);
     });
-    this.resizeObserver.observe(canvas.parentElement!);
+    resizeObs3d.observe(panel3d);
   }
 
   onCanvasClick(e: MouseEvent): void {
