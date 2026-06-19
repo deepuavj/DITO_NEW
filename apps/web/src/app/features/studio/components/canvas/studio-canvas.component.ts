@@ -5,6 +5,7 @@ import {
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { RendererService } from '../../services/renderer.service';
 import { SceneEngine } from '../../../../engines/scene/scene.engine';
+import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
@@ -429,9 +430,10 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   readonly state     = inject(StudioStateService);
   readonly history   = inject(HistoryService);
   readonly floorPlan = inject(FloorPlanService);
-  private readonly renderer    = inject(RendererService);
-  private readonly sceneEngine = inject(SceneEngine);
-  private readonly injector    = inject(Injector);
+  private readonly renderer       = inject(RendererService);
+  private readonly sceneEngine    = inject(SceneEngine);
+  private readonly metadataEngine = inject(MetadataEngine);
+  private readonly injector       = inject(Injector);
   private resizeObserver!: ResizeObserver;
 
   // ─── 2D scene data via FloorPlanService ─────────────────────────────────────
@@ -576,11 +578,16 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (!canvas) return;
     requestAnimationFrame(() => {
       this.renderer.init(canvas);
+      // Sync furniture objects (no room — room comes from floor plan)
       effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
       effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
-      // Sync 2D floor plan walls into 3D
+      // Sync 2D floor plan (walls + doors + windows) into 3D
       effect(() => {
-        this.renderer.syncFloorPlan(this.floorPlan.walls());
+        this.renderer.syncFloorPlan(
+          this.floorPlan.walls(),
+          this.floorPlan.doors(),
+          this.floorPlan.windows(),
+        );
       }, { injector: this.injector });
       this.resizeObserver = new ResizeObserver(entries => {
         const { width, height } = entries[0].contentRect;
@@ -597,7 +604,18 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.sceneEngine.select(this.renderer.pickObject(e, c));
   }
 
-  onDrop3d(e: DragEvent): void { e.preventDefault(); }
+  onDrop3d(e: DragEvent): void {
+    e.preventDefault();
+    e.stopPropagation(); // prevent studio.component's onDrop from also firing
+    const raw = e.dataTransfer?.getData('application/dito-asset');
+    if (!raw) return;
+    try {
+      const asset = JSON.parse(raw);
+      this.metadataEngine.register(asset.id, asset.metadata);
+      this.sceneEngine.addObject(asset.id, asset.name, [0, 0, 0]);
+      this.history.push(`Added ${asset.name}`);
+    } catch {}
+  }
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();

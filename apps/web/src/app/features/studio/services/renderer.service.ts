@@ -7,7 +7,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SceneEngine } from '../../../engines/scene/scene.engine';
 import { MaterialEngine } from '../../../engines/material/material.engine';
 import type { SceneObject } from '../../../core/models/scene.models';
-import type { FPWall } from './floor-plan.service';
+import type { FPWall, FPDoor, FPWindow } from './floor-plan.service';
 
 const PIXELS_PER_METER = 100;
 
@@ -44,30 +44,56 @@ export class RendererService implements OnDestroy {
     });
   }
 
-  syncScene(): void {
-    const room = this.sceneEngine.room();
-    this.buildRoom(room.width, room.depth, room.height, room.wallColor);
+  private floorMeshMap = new Map<string, THREE.Mesh>();
 
+  syncScene(): void {
+    // Only sync furniture objects — room/walls come from syncFloorPlan
     const objects = this.sceneEngine.objects();
     objects.forEach(obj => this.syncObject(obj));
 
-    // Remove meshes for objects that no longer exist
     const objectIds = new Set(objects.map(o => o.id));
     this.meshMap.forEach((_, id) => {
-      if (!objectIds.has(id) && id !== '__room__') this.removeFromScene(id);
+      if (!objectIds.has(id)) this.removeFromScene(id);
     });
   }
 
-  syncFloorPlan(walls: FPWall[]): void {
+  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = []): void {
     const wallIds = new Set(walls.map(w => w.id));
+    const doorIds = new Set(doors.map(d => d.id));
+    const winIds  = new Set(windows.map(w => w.id));
 
-    // Remove walls no longer in the array
+    // Remove stale wall meshes
     this.wallMeshMap.forEach((mesh, id) => {
-      if (!wallIds.has(id)) {
-        this.threeScene.remove(mesh);
-        this.wallMeshMap.delete(id);
-      }
+      if (!wallIds.has(id)) { this.threeScene.remove(mesh); this.wallMeshMap.delete(id); }
     });
+    // Remove stale floor meshes (door/window markers stored here)
+    this.floorMeshMap.forEach((mesh, id) => {
+      if (!doorIds.has(id) && !winIds.has(id)) { this.threeScene.remove(mesh); this.floorMeshMap.delete(id); }
+    });
+
+    // Build/update floor slab from bounding box of walls
+    if (walls.length >= 2) {
+      const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+      const allY = walls.flatMap(w => [w.start.y, w.end.y]);
+      const minX = Math.min(...allX) / PIXELS_PER_METER;
+      const maxX = Math.max(...allX) / PIXELS_PER_METER;
+      const minZ = Math.min(...allY) / PIXELS_PER_METER;
+      const maxZ = Math.max(...allY) / PIXELS_PER_METER;
+      const floorW = maxX - minX, floorD = maxZ - minZ;
+      let floor = this.wallMeshMap.get('__floor__');
+      if (!floor) {
+        floor = new THREE.Mesh(
+          new THREE.PlaneGeometry(1, 1),
+          new THREE.MeshStandardMaterial({ color: '#C8B89A', roughness: 1.0 }),
+        );
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        this.threeScene.add(floor);
+        this.wallMeshMap.set('__floor__', floor);
+      }
+      floor.scale.set(floorW, floorD, 1);
+      floor.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
+    }
 
     for (const wall of walls) {
       const dx = wall.end.x - wall.start.x;
@@ -75,10 +101,8 @@ export class RendererService implements OnDestroy {
       const length = Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_METER;
       const height = wall.meta.height / 1000;
       const thickness = wall.meta.thickness / 1000;
-
       const cx = ((wall.start.x + wall.end.x) / 2) / PIXELS_PER_METER;
       const cz = ((wall.start.y + wall.end.y) / 2) / PIXELS_PER_METER;
-      const cy = height / 2;
       const rotY = -Math.atan2(dy, dx);
 
       let mesh = this.wallMeshMap.get(wall.id);
@@ -86,16 +110,48 @@ export class RendererService implements OnDestroy {
         const geo = new THREE.BoxGeometry(1, 1, 1);
         const mat = new THREE.MeshStandardMaterial({ color: wall.meta.color, roughness: 0.9 });
         mesh = new THREE.Mesh(geo, mat);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = true; mesh.receiveShadow = true;
         this.threeScene.add(mesh);
         this.wallMeshMap.set(wall.id, mesh);
       }
-
       mesh.scale.set(length, height, thickness);
-      mesh.position.set(cx, cy, cz);
+      mesh.position.set(cx, height / 2, cz);
       mesh.rotation.set(0, rotY, 0);
       (mesh.material as THREE.MeshStandardMaterial).color.set(wall.meta.color);
+    }
+
+    // Doors — brown frame box
+    for (const door of doors) {
+      const w = door.meta.width / 1000, h = door.meta.height / 1000;
+      const px = door.pos.x / PIXELS_PER_METER, pz = door.pos.y / PIXELS_PER_METER;
+      let mesh = this.floorMeshMap.get(door.id);
+      if (!mesh) {
+        const mat = new THREE.MeshStandardMaterial({ color: '#8B5E3C', roughness: 0.8 });
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.05), mat);
+        mesh.castShadow = true;
+        this.threeScene.add(mesh);
+        this.floorMeshMap.set(door.id, mesh);
+      }
+      mesh.scale.set(w, h, 1);
+      mesh.position.set(px, h / 2, pz);
+      mesh.rotation.set(0, -door.angle, 0);
+    }
+
+    // Windows — blue-tinted glass box
+    for (const win of windows) {
+      const w = win.meta.width / 1000, h = win.meta.height / 1000;
+      const px = win.pos.x / PIXELS_PER_METER, pz = win.pos.y / PIXELS_PER_METER;
+      const sillH = win.meta.sillH / 1000;
+      let mesh = this.floorMeshMap.get(win.id);
+      if (!mesh) {
+        const mat = new THREE.MeshStandardMaterial({ color: '#93C5FD', roughness: 0.1, transparent: true, opacity: 0.45 });
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.04), mat);
+        this.threeScene.add(mesh);
+        this.floorMeshMap.set(win.id, mesh);
+      }
+      mesh.scale.set(w, h, 1);
+      mesh.position.set(px, sillH + h / 2, pz);
+      mesh.rotation.set(0, -win.angle, 0);
     }
   }
 
@@ -258,37 +314,6 @@ export class RendererService implements OnDestroy {
     this.controls.maxDistance = 20;
     this.controls.maxPolarAngle = Math.PI / 2;
     this.controls.target.set(0, 0.5, 0);
-  }
-
-  private buildRoom(width: number, depth: number, height: number, wallColor: string): void {
-    const existing = this.meshMap.get('__room__');
-    if (existing) { this.threeScene.remove(existing); }
-
-    const group = new THREE.Group();
-    const matWall = new THREE.MeshStandardMaterial({ color: wallColor, roughness: 0.9 });
-    const matFloor = new THREE.MeshStandardMaterial({ color: '#C8B89A', roughness: 1.0 });
-
-    // Floor
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), matFloor);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    group.add(floor);
-
-    // Back wall
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(width, height), matWall);
-    backWall.position.set(0, height / 2, -depth / 2);
-    backWall.receiveShadow = true;
-    group.add(backWall);
-
-    // Left wall
-    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(depth, height), matWall);
-    leftWall.position.set(-width / 2, height / 2, 0);
-    leftWall.rotation.y = Math.PI / 2;
-    leftWall.receiveShadow = true;
-    group.add(leftWall);
-
-    this.threeScene.add(group);
-    this.meshMap.set('__room__', group);
   }
 
   private removeFromScene(id: string): void {
