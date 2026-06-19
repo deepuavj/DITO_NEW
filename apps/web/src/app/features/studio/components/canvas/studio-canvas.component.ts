@@ -1,282 +1,588 @@
 import {
   Component, ElementRef, ViewChild, AfterViewInit,
-  OnDestroy, inject, effect, Injector, signal, computed,
+  OnDestroy, inject, effect, Injector, signal, computed, HostListener,
 } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { RendererService } from '../../services/renderer.service';
 import { SceneEngine } from '../../../../engines/scene/scene.engine';
 import { StudioStateService } from '../../services/studio-state.service';
+import { HistoryService } from '../../services/history.service';
 
-// ─── Data model ───────────────────────────────────────────────────────────────
-interface Pt { x: number; y: number }
-interface Wall { id: string; start: Pt; end: Pt }
-interface Door2D { id: string; cx: Pt; angle: number }
-interface Win2D { id: string; cx: Pt; angle: number }
-interface Measure { id: string; start: Pt; end: Pt }
+// ─── 2D data model ────────────────────────────────────────────────────────────
+export interface Pt { x: number; y: number }
+
+export interface WallMeta { thickness: number; height: number; material: string; color: string }
+export interface DoorMeta { width: number; height: number; swingDir: 'left' | 'right'; openAngle: number }
+export interface WinMeta  { width: number; height: number; sillH: number }
+export interface MeasureMeta { unit: 'm' | 'cm' | 'mm' }
+
+export interface Wall    { id: string; start: Pt; end: Pt; meta: WallMeta }
+export interface Door2D  { id: string; pos: Pt; wallId: string | null; meta: DoorMeta }
+export interface Win2D   { id: string; pos: Pt; wallId: string | null; meta: WinMeta }
+export interface Measure { id: string; start: Pt; end: Pt; meta: MeasureMeta }
+export interface RoomLabel { id: string; cx: Pt; area: number }
+
+export type Elem2D = Wall | Door2D | Win2D | Measure;
+
+const PIXELS_PER_METER = 100; // 100 SVG units = 1 m
+const DEFAULT_WALL: WallMeta = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
+const DEFAULT_DOOR: DoorMeta = { width: 900,  height: 2100, swingDir: 'left',  openAngle: 90 };
+const DEFAULT_WIN:  WinMeta  = { width: 1200, height: 1100, sillH: 900 };
+
+function uid(): string { return Math.random().toString(36).slice(2, 9); }
+
+function pxToM(px: number): number { return px / PIXELS_PER_METER; }
+
+function dist(a: Pt, b: Pt): number {
+  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
+}
+
+// Wall as thick polygon (two parallel lines + fill)
+function wallPolygon(w: Wall): string {
+  const dx = w.end.x - w.start.x;
+  const dy = w.end.y - w.start.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const ux = dx / len; const uy = dy / len;
+  const nx = -uy; const ny = ux;
+  const halfT = (w.meta.thickness / 2000) * PIXELS_PER_METER; // mm → m → px
+  const pts = [
+    { x: w.start.x + nx * halfT, y: w.start.y + ny * halfT },
+    { x: w.end.x   + nx * halfT, y: w.end.y   + ny * halfT },
+    { x: w.end.x   - nx * halfT, y: w.end.y   - ny * halfT },
+    { x: w.start.x - nx * halfT, y: w.start.y - ny * halfT },
+  ];
+  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + 'Z';
+}
+
+function wallAngle(w: Wall): number {
+  return Math.atan2(w.end.y - w.start.y, w.end.x - w.start.x) * 180 / Math.PI;
+}
+
+// Compute door arc path: quarter-circle swing
+function doorPath(d: Door2D): string {
+  const w = (d.meta.width / 1000) * PIXELS_PER_METER;
+  const sweep = d.meta.swingDir === 'right' ? 1 : 0;
+  const ex = w; const ey = d.meta.swingDir === 'right' ? -w : w;
+  return `M0,0 L${ex.toFixed(1)},0 A${w.toFixed(1)},${w.toFixed(1)} 0 0,${sweep} 0,${ey.toFixed(1)} Z`;
+}
+
+// Nice ruler intervals (meters)
+const RULER_INTERVALS_M = [0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100];
+function rulerInterval(zoom: number): number {
+  const targetPx = 80; // desired screen-space tick spacing
+  for (const m of RULER_INTERVALS_M) {
+    if (m * PIXELS_PER_METER * zoom >= targetPx) return m;
+  }
+  return 100;
+}
 
 @Component({
   selector: 'dito-studio-canvas',
   imports: [CommonModule, DecimalPipe],
   providers: [RendererService],
   styles: [`
-    :host { display: flex; flex-direction: column; width: 100%; height: 100%; position: relative; }
+    :host { display: flex; flex-direction: column; width: 100%; height: 100%; position: relative; overflow: hidden; }
     canvas { display: block; width: 100%; height: 100%; outline: none; }
-    .canvas-2d { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--canvas-bg, #F4F5F7); }
-    .grid-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-    .empty-hint { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; pointer-events: none; }
-    .hint-icon { opacity: 0.15; }
-    .hint-text { font-size: 13px; color: var(--muted, #9CA3AF); font-weight: 500; }
-    .hint-sub { font-size: 11px; color: var(--muted, #9CA3AF); }
-    .canvas-2d.dragover { background: rgba(37,99,235,0.04); }
-    /* 2D canvas */
-    .canvas-2d-svg { display: block; width: 100%; height: 100%; cursor: crosshair; user-select: none; }
-    .zoom-controls { position: absolute; bottom: 12px; right: 12px; display: flex; align-items: center; gap: 4px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; z-index: 10; }
-    .zoom-btn { width: 24px; height: 24px; border: none; background: none; color: var(--fg); font-size: 16px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
-    .zoom-btn:hover { background: rgba(255,255,255,0.08); }
-    .zoom-pct { font-size: 11px; color: var(--muted); min-width: 36px; text-align: center; font-weight: 600; }
-    .upload-btn { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 7px; color: var(--muted); font-size: 11px; cursor: pointer; z-index: 10; transition: all 150ms; }
-    .upload-btn:hover { color: var(--fg); border-color: rgba(59,130,246,0.4); }
-    .dxf-banner { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); background: rgba(234,88,12,0.9); color: white; padding: 8px 16px; border-radius: 6px; font-size: 12px; z-index: 20; }
+
+    /* ── 2D container ── */
+    .canvas-2d { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--canvas-bg, #F4F5F7); display: flex; flex-direction: column; }
+
+    /* ── Ruler + canvas layout ── */
+    .canvas-2d-body { display: flex; flex: 1; min-height: 0; }
+    .ruler-h-wrap   { display: flex; height: 24px; flex-shrink: 0; }
+    .ruler-corner   { width: 24px; height: 24px; background: var(--panel-bg); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .ruler-h        { flex: 1; overflow: hidden; }
+    .ruler-v        { width: 24px; flex-shrink: 0; overflow: hidden; }
+    svg.ruler-svg   { display: block; }
+    .canvas-area    { flex: 1; position: relative; overflow: hidden; min-width: 0; min-height: 0; }
+
+    /* ── Main SVG ── */
+    .canvas-2d-svg  { display: block; width: 100%; height: 100%; user-select: none; }
+
+    /* ── Zoom controls ── */
+    .zoom-controls  { position: absolute; bottom: 12px; right: 12px; display: flex; align-items: center; gap: 2px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .zoom-btn       { width: 24px; height: 24px; border: none; background: none; color: var(--fg); font-size: 15px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+    .zoom-btn:hover { background: rgba(255,255,255,0.1); }
+    .zoom-pct       { font-size: 11px; color: var(--muted); min-width: 38px; text-align: center; font-weight: 600; }
+
+    /* ── Upload / toolbar ── */
+    .canvas-toolbar  { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .ct-btn          { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--muted); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 130ms; }
+    .ct-btn:hover    { background: rgba(255,255,255,0.06); color: var(--fg); }
+    .ct-btn.danger:hover { background: rgba(239,68,68,0.15); color: #F87171; border-color: rgba(239,68,68,0.3); }
+    .ct-divider      { width: 1px; height: 16px; background: var(--border); }
+    .ct-unit         { font-size: 10px; color: var(--muted); padding: 0 4px; }
+
+    /* ── Banner ── */
+    .banner { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); background: rgba(234,88,12,0.92); color: white; padding: 7px 16px; border-radius: 6px; font-size: 12px; z-index: 20; white-space: nowrap; }
+
+    /* ── Cursor coord readout ── */
+    .coord-readout { position: absolute; bottom: 12px; left: 12px; font-size: 10px; color: var(--muted); font-family: monospace; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; z-index: 10; pointer-events: none; }
   `],
   template: `
     @if (state.viewMode() === '3d') {
-      <canvas
-        #canvas
-        (click)="onCanvasClick($event)"
-        (dragover)="$event.preventDefault()"
-        (drop)="onDrop($event)"
-        tabindex="0"
-      ></canvas>
+      <!-- ── 3D WebGL canvas ── -->
+      <canvas #canvas (click)="onCanvasClick($event)" (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)" tabindex="0"></canvas>
     } @else {
-      <div class="canvas-2d"
-        [class.dragover]="dragging"
-        (dragover)="dragging=true; $event.preventDefault()"
-        (dragleave)="dragging=false"
-        (drop)="dragging=false">
+      <!-- ── 2D Floor Plan ── -->
+      <div class="canvas-2d">
 
-        <!-- DXF/DWG upload banner -->
-        @if (dwgBanner) {
-          <div class="dxf-banner">{{ dwgBanner }}</div>
-        }
+        <!-- banner -->
+        @if (banner) { <div class="banner">{{ banner }}</div> }
 
-        <!-- Upload button -->
-        <button class="upload-btn" (click)="dwgInput.click()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          Upload Floor Plan
-        </button>
-        <input #dwgInput type="file" accept=".dxf,.dwg" style="display:none" (change)="onFileUpload($event)"/>
-
-        <!-- Main interactive SVG -->
-        <svg #svg2d class="canvas-2d-svg"
-          xmlns="http://www.w3.org/2000/svg"
-          (mousedown)="onDown($event)"
-          (mousemove)="onMove($event)"
-          (mouseup)="onUp($event)"
-          (mouseleave)="onLeave()"
-          (wheel)="onWheel($event)"
-          [style.cursor]="svgCursor()">
-
-          <defs>
-            <!-- minor grid: every 60px -->
-            <pattern id="minorGrid" width="60" height="60" patternUnits="userSpaceOnUse"
-              [attr.patternTransform]="patternTransform()">
-              <path d="M 60 0 L 0 0 0 60" fill="none"
-                stroke="var(--grid-minor,rgba(128,128,128,0.12))" stroke-width="0.5"/>
-            </pattern>
-            <!-- major grid: every 300px (5 cells = 2.5 m) -->
-            <pattern id="majorGrid" width="300" height="300" patternUnits="userSpaceOnUse"
-              [attr.patternTransform]="patternTransform()">
-              <rect width="300" height="300" fill="url(#minorGrid)"/>
-              <path d="M 300 0 L 0 0 0 300" fill="none"
-                stroke="var(--grid-major,rgba(128,128,128,0.22))" stroke-width="1"/>
-            </pattern>
-            <!-- arrow marker for measures -->
-            <marker id="arrow-start" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse">
-              <path d="M0,0 L8,4 L0,8 Z" fill="var(--fg,#374151)"/>
-            </marker>
-            <marker id="arrow-end" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill="var(--fg,#374151)"/>
-            </marker>
-          </defs>
-
-          <!-- grid background -->
-          <rect width="100%" height="100%" fill="url(#majorGrid)"/>
-
-          <!-- all drawing elements inside the viewport transform group -->
-          <g [attr.transform]="viewTransform()">
-
-            <!-- Walls -->
-            @for (w of walls; track w.id) {
-              <line
-                [attr.x1]="w.start.x" [attr.y1]="w.start.y"
-                [attr.x2]="w.end.x" [attr.y2]="w.end.y"
-                [attr.stroke]="selectedWallId === w.id ? '#3B82F6' : 'var(--fg,#374151)'"
-                [attr.stroke-width]="6 / zoom()"
-                stroke-linecap="round"
-                style="cursor:pointer"
-                (mousedown)="onWallClick(w, $event)"
-              />
-            }
-
-            <!-- Doors -->
-            @for (d of doors; track d.id) {
-              <g [attr.transform]="'translate(' + d.cx.x + ',' + d.cx.y + ') rotate(' + d.angle + ')'">
-                <!-- door leaf arc: radius 40 -->
-                <path
-                  [attr.d]="'M 0 0 L 40 0 A 40 40 0 0 1 0 -40 Z'"
-                  fill="rgba(59,130,246,0.12)"
-                  [attr.stroke]="'var(--fg,#374151)'"
-                  [attr.stroke-width]="2 / zoom()"
-                />
-              </g>
-            }
-
-            <!-- Windows -->
-            @for (w of windows; track w.id) {
-              <g [attr.transform]="'translate(' + w.cx.x + ',' + w.cx.y + ') rotate(' + w.angle + ')'">
-                <rect
-                  x="-25" y="-6"
-                  width="50" height="12"
-                  fill="rgba(147,197,253,0.3)"
-                  [attr.stroke]="'var(--fg,#374151)'"
-                  [attr.stroke-width]="2 / zoom()"
-                />
-                <!-- hatch lines -->
-                <line x1="-10" y1="-6" x2="-10" y2="6"
-                  [attr.stroke]="'var(--fg,#374151)'"
-                  [attr.stroke-width]="1 / zoom()"/>
-                <line x1="10" y1="-6" x2="10" y2="6"
-                  [attr.stroke]="'var(--fg,#374151)'"
-                  [attr.stroke-width]="1 / zoom()"/>
-              </g>
-            }
-
-            <!-- Measures -->
-            @for (m of measures; track m.id) {
-              <g>
-                <line
-                  [attr.x1]="m.start.x" [attr.y1]="m.start.y"
-                  [attr.x2]="m.end.x" [attr.y2]="m.end.y"
-                  stroke="var(--fg,#374151)"
-                  [attr.stroke-width]="1.5 / zoom()"
-                  stroke-dasharray="4,3"
-                  marker-start="url(#arrow-start)"
-                  marker-end="url(#arrow-end)"
-                />
-                <text
-                  [attr.x]="(m.start.x + m.end.x) / 2"
-                  [attr.y]="(m.start.y + m.end.y) / 2 - 8 / zoom()"
-                  [attr.font-size]="12 / zoom()"
-                  fill="var(--fg,#374151)"
-                  text-anchor="middle"
-                >{{ measureLabel(m) }}</text>
-              </g>
-            }
-
-            <!-- In-progress preview -->
-            @if (drawStart && drawCurrent) {
-              <line
-                [attr.x1]="drawStart.x" [attr.y1]="drawStart.y"
-                [attr.x2]="drawCurrent.x" [attr.y2]="drawCurrent.y"
-                stroke="#3B82F6"
-                [attr.stroke-width]="(state.drawTool() === 'wall' ? 6 : 2) / zoom()"
-                stroke-dasharray="6,4"
-                stroke-linecap="round"
-                pointer-events="none"
-              />
-              @if (state.drawTool() === 'measure') {
-                <text
-                  [attr.x]="(drawStart.x + drawCurrent.x) / 2"
-                  [attr.y]="(drawStart.y + drawCurrent.y) / 2 - 10 / zoom()"
-                  [attr.font-size]="12 / zoom()"
-                  fill="#3B82F6"
-                  text-anchor="middle"
-                  pointer-events="none"
-                >{{ previewMeasureLabel() }}</text>
-              }
-            }
-
-          </g><!-- end viewport group -->
-
-          <!-- Empty state hint (in SVG overlay, not transformed) -->
-          @if (walls.length === 0 && !drawStart) {
-            <g pointer-events="none">
-              <text x="50%" y="calc(50% - 20px)" dominant-baseline="middle" text-anchor="middle"
-                font-size="13" fill="var(--muted,#9CA3AF)" font-weight="500">2D Floor Plan</text>
-              <text x="50%" y="calc(50% + 10px)" dominant-baseline="middle" text-anchor="middle"
-                font-size="11" fill="var(--muted,#9CA3AF)">Use the drawing tools on the left to add walls, doors and windows</text>
-            </g>
-          }
-
-        </svg>
-
-        <!-- Zoom controls overlay -->
-        <div class="zoom-controls">
-          <button class="zoom-btn" (click)="zoomIn()" title="Zoom in">+</button>
-          <span class="zoom-pct">{{ zoom() * 100 | number:'1.0-0' }}%</span>
-          <button class="zoom-btn" (click)="zoomOut()" title="Zoom out">−</button>
-          <button class="zoom-btn" (click)="resetView()" title="Fit to screen">⊡</button>
+        <!-- top-center toolbar (upload, delete, units) -->
+        <div class="canvas-toolbar">
+          <button class="ct-btn" (click)="fileInput.click()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import DXF
+          </button>
+          <input #fileInput type="file" accept=".dxf,.dwg" style="display:none" (change)="onFileUpload($event)" />
+          <div class="ct-divider"></div>
+          <button class="ct-btn" (click)="deleteSelected()" [disabled]="!selectedId">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Delete
+          </button>
+          <div class="ct-divider"></div>
+          <span class="ct-unit">1 grid = 0.5 m</span>
         </div>
 
-      </div>
+        <!-- ruler row (horizontal) -->
+        <div class="ruler-h-wrap">
+          <div class="ruler-corner">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <text x="12" y="14" font-size="7" fill="var(--muted)" text-anchor="middle">m</text>
+            </svg>
+          </div>
+          <div class="ruler-h" #rulerHWrap>
+            <svg class="ruler-svg" [attr.width]="canvasW()" height="24" [attr.viewBox]="'0 0 ' + canvasW() + ' 24'">
+              <rect width="100%" height="24" fill="var(--panel-bg)"/>
+              <line x1="0" y1="23" [attr.x2]="canvasW()" y2="23" stroke="var(--border)" stroke-width="1"/>
+              @for (tick of hTicks(); track tick.pos) {
+                <line [attr.x1]="tick.pos" y1="23" [attr.x2]="tick.pos" [attr.y2]="tick.major ? 8 : 16" stroke="var(--muted)" stroke-width="0.75"/>
+                @if (tick.major) {
+                  <text [attr.x]="tick.pos + 2" y="11" font-size="8" fill="var(--muted)">{{ tick.label }}</text>
+                }
+              }
+              <!-- cursor indicator -->
+              <line [attr.x1]="cursorScreenX()" y1="0" [attr.x2]="cursorScreenX()" y2="24" stroke="#3B82F6" stroke-width="1" opacity="0.6"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- body: vertical ruler + canvas -->
+        <div class="canvas-2d-body">
+          <div class="ruler-v" #rulerVWrap>
+            <svg class="ruler-svg" width="24" [attr.height]="canvasH()" [attr.viewBox]="'0 0 24 ' + canvasH()">
+              <rect width="24" height="100%" fill="var(--panel-bg)"/>
+              <line x1="23" y1="0" x2="23" [attr.y2]="canvasH()" stroke="var(--border)" stroke-width="1"/>
+              @for (tick of vTicks(); track tick.pos) {
+                <line x1="23" [attr.y1]="tick.pos" [attr.x2]="tick.major ? 8 : 16" [attr.y2]="tick.pos" stroke="var(--muted)" stroke-width="0.75"/>
+                @if (tick.major) {
+                  <text [attr.x]="1" [attr.y]="tick.pos - 2" font-size="8" fill="var(--muted)" transform-origin="0 0" [attr.transform]="'rotate(-90,' + 12 + ',' + tick.pos + ')'">{{ tick.label }}</text>
+                }
+              }
+              <!-- cursor indicator -->
+              <line x1="0" [attr.y1]="cursorScreenY()" x2="24" [attr.y2]="cursorScreenY()" stroke="#3B82F6" stroke-width="1" opacity="0.6"/>
+            </svg>
+          </div>
+
+          <!-- Main drawing canvas -->
+          <div class="canvas-area" #canvasArea>
+            <svg class="canvas-2d-svg" #svg2d
+              xmlns="http://www.w3.org/2000/svg"
+              [attr.width]="canvasW()"
+              [attr.height]="canvasH()"
+              [style.cursor]="cursor()"
+              (mousedown)="onDown($event)"
+              (mousemove)="onMove($event)"
+              (mouseup)="onUp($event)"
+              (mouseleave)="onLeave()"
+              (wheel)="onWheel($event)"
+              (dblclick)="onDblClick($event)">
+
+              <defs>
+                <!-- minor grid: 0.5m = 50px world units -->
+                <pattern id="minorGrid" [attr.width]="50" [attr.height]="50"
+                  patternUnits="userSpaceOnUse"
+                  [attr.patternTransform]="patTransform()">
+                  <path d="M 50 0 L 0 0 0 50" fill="none"
+                    stroke="var(--grid-minor,rgba(128,128,128,0.1))" stroke-width="0.5"/>
+                </pattern>
+                <!-- major grid: 5m = 500px -->
+                <pattern id="majorGrid" [attr.width]="500" [attr.height]="500"
+                  patternUnits="userSpaceOnUse"
+                  [attr.patternTransform]="patTransform()">
+                  <rect width="500" height="500" fill="url(#minorGrid)"/>
+                  <path d="M 500 0 L 0 0 0 500" fill="none"
+                    stroke="var(--grid-major,rgba(128,128,128,0.2))" stroke-width="1"/>
+                </pattern>
+                <!-- door fill -->
+                <pattern id="doorFill" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                  <line x1="0" y1="0" x2="0" y2="6" stroke="rgba(59,130,246,0.2)" stroke-width="2"/>
+                </pattern>
+                <!-- window hatch -->
+                <pattern id="winHatch" width="8" height="8" patternUnits="userSpaceOnUse">
+                  <path d="M0,0 L8,8 M8,0 L0,8" stroke="rgba(147,197,253,0.6)" stroke-width="1"/>
+                </pattern>
+                <!-- measure arrow -->
+                <marker id="arr-s" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto-start-reverse">
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#F59E0B"/>
+                </marker>
+                <marker id="arr-e" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+                  <path d="M0,0 L6,3 L0,6 Z" fill="#F59E0B"/>
+                </marker>
+              </defs>
+
+              <!-- grid background (full SVG area, not transformed) -->
+              <rect width="100%" height="100%" fill="url(#majorGrid)"/>
+
+              <!-- viewport transform group -->
+              <g [attr.transform]="viewTransform()">
+
+                <!-- ── Walls (thick polygons) ── -->
+                @for (w of walls; track w.id) {
+                  <g class="wall-group" [class.selected]="selectedId === w.id">
+                    <!-- wall fill -->
+                    <path [attr.d]="wallPoly(w)"
+                      [attr.fill]="selectedId === w.id ? 'rgba(59,130,246,0.15)' : w.meta.color"
+                      [attr.stroke]="selectedId === w.id ? '#3B82F6' : 'var(--fg,#374151)'"
+                      [attr.stroke-width]="1.5 / zoom()"
+                      stroke-linejoin="round"
+                      style="cursor:pointer"
+                      (mousedown)="selectElem(w.id, 'wall', $event)"/>
+                    <!-- wall centerline (thin, dashed, only when selected) -->
+                    @if (selectedId === w.id) {
+                      <line [attr.x1]="w.start.x" [attr.y1]="w.start.y"
+                            [attr.x2]="w.end.x"   [attr.y2]="w.end.y"
+                            stroke="#3B82F6" stroke-width="0.5" stroke-dasharray="4,3" opacity="0.6" pointer-events="none"/>
+                    }
+                    <!-- dimension label on wall -->
+                    @if (state.showDimensions()) {
+                      <text
+                        [attr.x]="(w.start.x + w.end.x) / 2"
+                        [attr.y]="(w.start.y + w.end.y) / 2"
+                        [attr.font-size]="10 / zoom()"
+                        [attr.transform]="wallLabelTransform(w)"
+                        fill="var(--fg,#374151)" text-anchor="middle" dominant-baseline="central"
+                        pointer-events="none">{{ wallLabel(w) }}</text>
+                    }
+                    <!-- endpoint nodes -->
+                    <circle [attr.cx]="w.start.x" [attr.cy]="w.start.y" [attr.r]="3.5 / zoom()"
+                      fill="white" stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()" style="cursor:crosshair"/>
+                    <circle [attr.cx]="w.end.x"   [attr.cy]="w.end.y"   [attr.r]="3.5 / zoom()"
+                      fill="white" stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()" style="cursor:crosshair"/>
+                  </g>
+                }
+
+                <!-- ── Doors ── -->
+                @for (d of doors; track d.id) {
+                  <g [attr.transform]="'translate(' + d.pos.x + ',' + d.pos.y + ')'"
+                    style="cursor:pointer"
+                    (mousedown)="selectElem(d.id, 'door', $event)">
+                    <path [attr.d]="doorArc(d)"
+                      fill="url(#doorFill)"
+                      [attr.stroke]="selectedId === d.id ? '#3B82F6' : 'var(--fg,#374151)'"
+                      [attr.stroke-width]="1.5 / zoom()"/>
+                    <!-- door frame line -->
+                    <line [attr.x1]="0" y1="0"
+                      [attr.x2]="(d.meta.width / 1000) * 100" y2="0"
+                      [attr.stroke]="'var(--fg,#374151)'"
+                      [attr.stroke-width]="4 / zoom()"
+                      stroke-linecap="square"/>
+                    @if (state.showDimensions()) {
+                      <text [attr.x]="(d.meta.width / 1000) * 50" [attr.y]="-8 / zoom()"
+                        [attr.font-size]="9 / zoom()" fill="var(--muted,#6B7280)" text-anchor="middle" pointer-events="none">
+                        {{ d.meta.width }} mm
+                      </text>
+                    }
+                  </g>
+                }
+
+                <!-- ── Windows ── -->
+                @for (w of windows; track w.id) {
+                  <g [attr.transform]="'translate(' + w.pos.x + ',' + w.pos.y + ')'"
+                    style="cursor:pointer"
+                    (mousedown)="selectElem(w.id, 'window', $event)">
+                    @let ww = (w.meta.width / 1000) * 100;
+                    <rect [attr.x]="-ww/2" [attr.y]="-6 / zoom()"
+                      [attr.width]="ww" [attr.height]="12 / zoom()"
+                      fill="url(#winHatch)"
+                      [attr.stroke]="selectedId === w.id ? '#3B82F6' : 'var(--fg,#374151)'"
+                      [attr.stroke-width]="2 / zoom()"/>
+                    <!-- glass lines -->
+                    <line [attr.x1]="-ww/6" [attr.y1]="-6/zoom()" [attr.x2]="-ww/6" [attr.y2]="6/zoom()"
+                      stroke="rgba(147,197,253,0.8)" [attr.stroke-width]="1.5/zoom()"/>
+                    <line [attr.x1]="ww/6" [attr.y1]="-6/zoom()" [attr.x2]="ww/6" [attr.y2]="6/zoom()"
+                      stroke="rgba(147,197,253,0.8)" [attr.stroke-width]="1.5/zoom()"/>
+                    @if (state.showDimensions()) {
+                      <text [attr.x]="0" [attr.y]="-10/zoom()"
+                        [attr.font-size]="9/zoom()" fill="var(--muted,#6B7280)" text-anchor="middle" pointer-events="none">
+                        {{ w.meta.width }} mm
+                      </text>
+                    }
+                  </g>
+                }
+
+                <!-- ── Room labels (auto from enclosed walls) ── -->
+                @for (r of roomLabels(); track r.id) {
+                  <g pointer-events="none">
+                    <text [attr.x]="r.cx.x" [attr.y]="r.cx.y"
+                      [attr.font-size]="11 / zoom()" fill="var(--muted,#9CA3AF)"
+                      text-anchor="middle" dominant-baseline="central" font-weight="500">
+                      {{ r.area.toFixed(1) }} m²
+                    </text>
+                  </g>
+                }
+
+                <!-- ── Dimensions / Measures ── -->
+                @for (m of measures; track m.id) {
+                  <g style="cursor:pointer" (mousedown)="selectElem(m.id, 'measure', $event)">
+                    <!-- offset measure line (10px above/below) -->
+                    <line
+                      [attr.x1]="m.start.x" [attr.y1]="m.start.y - 16/zoom()"
+                      [attr.x2]="m.end.x"   [attr.y2]="m.end.y - 16/zoom()"
+                      stroke="#F59E0B" [attr.stroke-width]="1.2/zoom()"
+                      marker-start="url(#arr-s)" marker-end="url(#arr-e)"/>
+                    <!-- witness lines -->
+                    <line [attr.x1]="m.start.x" [attr.y1]="m.start.y" [attr.x2]="m.start.x" [attr.y2]="m.start.y - 22/zoom()"
+                      stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()"/>
+                    <line [attr.x1]="m.end.x" [attr.y1]="m.end.y" [attr.x2]="m.end.x" [attr.y2]="m.end.y - 22/zoom()"
+                      stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()"/>
+                    <!-- label -->
+                    <rect
+                      [attr.x]="(m.start.x+m.end.x)/2 - 20/zoom()"
+                      [attr.y]="(m.start.y+m.end.y)/2 - 30/zoom()"
+                      [attr.width]="40/zoom()" [attr.height]="14/zoom()"
+                      fill="var(--panel-bg)" stroke="#F59E0B" [attr.stroke-width]="0.6/zoom()" rx="2"/>
+                    <text
+                      [attr.x]="(m.start.x+m.end.x)/2"
+                      [attr.y]="(m.start.y+m.end.y)/2 - 23/zoom()"
+                      [attr.font-size]="10/zoom()" fill="#F59E0B"
+                      text-anchor="middle" dominant-baseline="central"
+                      pointer-events="none">{{ measureLabel(m) }}</text>
+                  </g>
+                }
+
+                <!-- ── In-progress preview ── -->
+                @if (drawStart() && drawCurrent()) {
+                  @if (state.drawTool() === 'wall') {
+                    <path [attr.d]="previewWallPoly()"
+                      fill="rgba(59,130,246,0.15)" stroke="#3B82F6"
+                      [attr.stroke-width]="1.5/zoom()" stroke-dasharray="5,3" pointer-events="none"/>
+                  } @else {
+                    <line
+                      [attr.x1]="drawStart()!.x" [attr.y1]="drawStart()!.y"
+                      [attr.x2]="drawCurrent()!.x" [attr.y2]="drawCurrent()!.y"
+                      stroke="#3B82F6" [attr.stroke-width]="1.5/zoom()"
+                      stroke-dasharray="5,3" pointer-events="none"/>
+                  }
+                  <!-- live distance tooltip -->
+                  <g pointer-events="none">
+                    <rect
+                      [attr.x]="drawCurrent()!.x + 8/zoom()"
+                      [attr.y]="drawCurrent()!.y - 10/zoom()"
+                      [attr.width]="42/zoom()" [attr.height]="14/zoom()"
+                      fill="rgba(30,40,70,0.9)" rx="3" [attr.stroke-width]="0"/>
+                    <text
+                      [attr.x]="drawCurrent()!.x + 8/zoom()"
+                      [attr.y]="drawCurrent()!.y + 1/zoom()"
+                      [attr.font-size]="9/zoom()" fill="white" dominant-baseline="central">
+                      {{ liveLabel() }}
+                    </text>
+                  </g>
+                }
+
+                <!-- ── Snap indicator ── -->
+                @if (snapPt()) {
+                  <circle [attr.cx]="snapPt()!.x" [attr.cy]="snapPt()!.y"
+                    [attr.r]="4/zoom()" fill="none" stroke="#3B82F6"
+                    [attr.stroke-width]="1.5/zoom()" pointer-events="none"/>
+                  <line [attr.x1]="snapPt()!.x - 6/zoom()" [attr.y1]="snapPt()!.y"
+                        [attr.x2]="snapPt()!.x + 6/zoom()" [attr.y2]="snapPt()!.y"
+                        stroke="#3B82F6" [attr.stroke-width]="1/zoom()" pointer-events="none"/>
+                  <line [attr.x1]="snapPt()!.x" [attr.y1]="snapPt()!.y - 6/zoom()"
+                        [attr.x2]="snapPt()!.x" [attr.y2]="snapPt()!.y + 6/zoom()"
+                        stroke="#3B82F6" [attr.stroke-width]="1/zoom()" pointer-events="none"/>
+                }
+
+                <!-- ── Empty state ── -->
+                @if (walls.length === 0 && !drawStart()) {
+                  <g pointer-events="none" [attr.transform]="emptyHintTransform()">
+                    <rect x="-120" y="-36" width="240" height="72" rx="8"
+                      fill="var(--panel-bg)" stroke="var(--border)" stroke-width="1" opacity="0.85"/>
+                    <text x="0" y="-10" font-size="13" fill="var(--muted,#9CA3AF)" font-weight="600" text-anchor="middle">2D Floor Plan</text>
+                    <text x="0" y="12" font-size="10" fill="var(--muted,#9CA3AF)" text-anchor="middle">Select a drawing tool from the left panel</text>
+                    <text x="0" y="26" font-size="10" fill="var(--muted,#9CA3AF)" text-anchor="middle">Click-drag to draw · Scroll to zoom</text>
+                  </g>
+                }
+
+              </g><!-- end viewport group -->
+            </svg>
+
+            <!-- ── Zoom controls ── -->
+            <div class="zoom-controls">
+              <button class="zoom-btn" (click)="zoomIn()">+</button>
+              <span class="zoom-pct">{{ (zoom() * 100) | number:'1.0-0' }}%</span>
+              <button class="zoom-btn" (click)="zoomOut()">−</button>
+              <button class="zoom-btn" title="Fit to content" (click)="fitView()">⊡</button>
+            </div>
+
+            <!-- ── Cursor coordinates ── -->
+            <div class="coord-readout">
+              X: {{ cursorWorld().x | number:'1.2-2' }} m &nbsp; Y: {{ cursorWorld().y | number:'1.2-2' }} m
+            </div>
+
+          </div><!-- canvas-area -->
+        </div><!-- canvas-2d-body -->
+      </div><!-- canvas-2d -->
     }
   `,
 })
 export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
-  @ViewChild('canvas') canvasRef?: ElementRef<HTMLCanvasElement>;
-  @ViewChild('svg2d') svg2dRef?: ElementRef<SVGSVGElement>;
+  @ViewChild('canvas')    canvasRef?:   ElementRef<HTMLCanvasElement>;
+  @ViewChild('svg2d')     svg2dRef?:    ElementRef<SVGSVGElement>;
+  @ViewChild('canvasArea') canvasAreaRef?: ElementRef<HTMLDivElement>;
 
-  readonly state = inject(StudioStateService);
-  private readonly renderer = inject(RendererService);
+  readonly state   = inject(StudioStateService);
+  readonly history = inject(HistoryService);
+  private readonly renderer    = inject(RendererService);
   private readonly sceneEngine = inject(SceneEngine);
-  private readonly injector = inject(Injector);
+  private readonly injector    = inject(Injector);
   private resizeObserver!: ResizeObserver;
-  dragging = false;
 
-  // ─── Viewport signals ─────────────────────────────────────────────────────
+  // ─── 2D scene data ──────────────────────────────────────────────────────────
+  walls:    Wall[]    = [];
+  doors:    Door2D[]  = [];
+  windows:  Win2D[]   = [];
+  measures: Measure[] = [];
+  selectedId: string | null = null;
+  selectedType: 'wall' | 'door' | 'window' | 'measure' | null = null;
+
+  // ─── Viewport signals ────────────────────────────────────────────────────────
   readonly zoom = signal(1);
-  readonly panX = signal(0);
-  readonly panY = signal(0);
+  readonly panX = signal(50);
+  readonly panY = signal(50);
 
+  // Canvas dimensions
+  readonly canvasW = signal(800);
+  readonly canvasH = signal(600);
+
+  // ─── Drawing signals ─────────────────────────────────────────────────────────
+  readonly drawStart   = signal<Pt | null>(null);
+  readonly drawCurrent = signal<Pt | null>(null);
+  readonly snapPt      = signal<Pt | null>(null);
+  readonly cursorScreenX = signal(0);
+  readonly cursorScreenY = signal(0);
+
+  // Mouse state (non-signal, no reactivity needed)
+  private isPanning = false;
+  private lastMouse = { x: 0, y: 0 };
+  banner: string | null = null;
+  private bannerTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ─── Computed transforms ─────────────────────────────────────────────────────
   readonly viewTransform = computed(
     () => `translate(${this.panX()},${this.panY()}) scale(${this.zoom()})`
   );
-
-  readonly patternTransform = computed(
+  readonly patTransform = computed(
     () => `translate(${this.panX()},${this.panY()}) scale(${this.zoom()})`
   );
 
-  readonly svgCursor = computed(() => {
+  // Cursor in world coordinates
+  readonly cursorWorld = computed<Pt>(() => {
+    const sx = this.cursorScreenX();
+    const sy = this.cursorScreenY();
+    const wx = (sx - this.panX()) / this.zoom() / PIXELS_PER_METER;
+    const wy = (sy - this.panY()) / this.zoom() / PIXELS_PER_METER;
+    return { x: wx, y: wy };
+  });
+
+  // SVG cursor style
+  readonly cursor = computed(() => {
     const tool = this.state.drawTool();
-    if (tool === 'pan') return 'grab';
+    if (tool === 'pan' || this.isPanning) return 'grab';
     if (tool === 'select') return 'default';
     return 'crosshair';
   });
 
-  // ─── Drawing state ────────────────────────────────────────────────────────
-  drawStart: Pt | null = null;
-  drawCurrent: Pt | null = null;
-  isPanning = false;
-  lastMouse = { x: 0, y: 0 };
+  // Empty state hint — in world coords, centered in current viewport
+  readonly emptyHintTransform = computed(() => {
+    const cx = (this.canvasW() / 2 - this.panX()) / this.zoom();
+    const cy = (this.canvasH() / 2 - this.panY()) / this.zoom();
+    return `translate(${cx},${cy})`;
+  });
 
-  // ─── Element state ────────────────────────────────────────────────────────
-  walls: Wall[] = [];
-  doors: Door2D[] = [];
-  windows: Win2D[] = [];
-  measures: Measure[] = [];
-  selectedWallId: string | null = null;
+  // Live distance label during draw
+  readonly liveLabel = computed(() => {
+    const s = this.drawStart(); const c = this.drawCurrent();
+    if (!s || !c) return '';
+    const d = dist(s, c) / PIXELS_PER_METER;
+    return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
+  });
 
-  // ─── DXF banner ───────────────────────────────────────────────────────────
-  dwgBanner: string | null = null;
-  private dwgBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  // ─── Rulers ─────────────────────────────────────────────────────────────────
+  readonly hTicks = computed(() => {
+    const iv = rulerInterval(this.zoom());
+    const ivPx = iv * PIXELS_PER_METER * this.zoom();
+    const startWorld = -this.panX() / this.zoom() / PIXELS_PER_METER;
+    const endWorld   = (this.canvasW() - this.panX()) / this.zoom() / PIXELS_PER_METER;
+    const ticks: { pos: number; major: boolean; label: string }[] = [];
+    const firstTick = Math.ceil(startWorld / iv) * iv;
+    for (let w = firstTick; w <= endWorld + iv; w = +(w + iv).toFixed(8)) {
+      const screenX = w * PIXELS_PER_METER * this.zoom() + this.panX();
+      if (screenX < 0 || screenX > this.canvasW()) continue;
+      const major = Math.abs(w % (iv * 5)) < iv * 0.01;
+      ticks.push({ pos: screenX, major, label: w.toFixed(iv < 1 ? 1 : 0) });
+    }
+    return ticks;
+  });
 
-  // ─── Lifecycle ────────────────────────────────────────────────────────────
+  readonly vTicks = computed(() => {
+    const iv = rulerInterval(this.zoom());
+    const startWorld = -this.panY() / this.zoom() / PIXELS_PER_METER;
+    const endWorld   = (this.canvasH() - this.panY()) / this.zoom() / PIXELS_PER_METER;
+    const ticks: { pos: number; major: boolean; label: string }[] = [];
+    const firstTick = Math.ceil(startWorld / iv) * iv;
+    for (let w = firstTick; w <= endWorld + iv; w = +(w + iv).toFixed(8)) {
+      const screenY = w * PIXELS_PER_METER * this.zoom() + this.panY();
+      if (screenY < 0 || screenY > this.canvasH()) continue;
+      const major = Math.abs(w % (iv * 5)) < iv * 0.01;
+      ticks.push({ pos: screenY, major, label: w.toFixed(iv < 1 ? 1 : 0) });
+    }
+    return ticks;
+  });
+
+  // ─── Room labels (basic centroid from wall set) ──────────────────────────────
+  readonly roomLabels = computed((): RoomLabel[] => {
+    if (this.walls.length < 3) return [];
+    const allX = this.walls.flatMap(w => [w.start.x, w.end.x]);
+    const allY = this.walls.flatMap(w => [w.start.y, w.end.y]);
+    const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
+    const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
+    const totalLen = this.walls.reduce((s, w) => s + dist(w.start, w.end), 0);
+    const areaM2 = (totalLen / PIXELS_PER_METER) ** 2 / (4 * Math.PI) * Math.PI;
+    return [{ id: 'room0', cx: { x: cx, y: cy }, area: +areaM2.toFixed(1) }];
+  });
+
+  // ─── Lifecycle ───────────────────────────────────────────────────────────────
   ngAfterViewInit(): void {
-    if (this.state.viewMode() === '3d') this.init3D();
+    if (this.state.viewMode() === '3d') {
+      this.init3D();
+    } else {
+      this.observeCanvasSize();
+    }
+  }
+
+  private observeCanvasSize(): void {
+    const el = this.canvasAreaRef?.nativeElement;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      this.canvasW.set(r.width);
+      this.canvasH.set(r.height);
+    });
+    ro.observe(el);
+    this.resizeObserver = ro;
   }
 
   private init3D(): void {
@@ -284,16 +590,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (!canvas) return;
     requestAnimationFrame(() => {
       this.renderer.init(canvas);
-
-      effect(() => {
-        this.sceneEngine.objects();
-        this.renderer.syncScene();
-      }, { injector: this.injector });
-
-      effect(() => {
-        this.renderer.highlightObject(this.sceneEngine.selectedId());
-      }, { injector: this.injector });
-
+      effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
+      effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
       this.resizeObserver = new ResizeObserver(entries => {
         const { width, height } = entries[0].contentRect;
         if (width > 0 && height > 0) this.renderer.resize(width, height);
@@ -302,101 +600,131 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  onCanvasClick(event: MouseEvent): void {
+  onCanvasClick(e: MouseEvent): void {
     if (this.state.mode() !== 'select') return;
-    const canvas = this.canvasRef?.nativeElement;
-    if (!canvas) return;
-    const id = this.renderer.pickObject(event, canvas);
-    this.sceneEngine.select(id);
+    const c = this.canvasRef?.nativeElement;
+    if (!c) return;
+    this.sceneEngine.select(this.renderer.pickObject(e, c));
   }
 
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-  }
+  onDrop3d(e: DragEvent): void { e.preventDefault(); }
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
     if (this.state.viewMode() === '3d') this.renderer.ngOnDestroy();
-    if (this.dwgBannerTimer) clearTimeout(this.dwgBannerTimer);
+    if (this.bannerTimer) clearTimeout(this.bannerTimer);
   }
 
-  // ─── Coordinate helpers ───────────────────────────────────────────────────
-  private svgPoint(e: MouseEvent): Pt {
-    const svg = this.svg2dRef?.nativeElement;
-    if (!svg) return { x: 0, y: 0 };
-    const rect = svg.getBoundingClientRect();
-    const screenX = e.clientX - rect.left;
-    const screenY = e.clientY - rect.top;
-    // Convert screen → SVG world space (account for pan and zoom)
-    const worldX = (screenX - this.panX()) / this.zoom();
-    const worldY = (screenY - this.panY()) / this.zoom();
-    return { x: worldX, y: worldY };
+  // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
+  @HostListener('window:keydown', ['$event'])
+  onKey(e: KeyboardEvent): void {
+    if (this.state.viewMode() !== '2d') return;
+    if (e.key === 'Escape') { this.drawStart.set(null); this.drawCurrent.set(null); this.selectedId = null; }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) this.deleteSelected();
+    if (e.key === 'f' || e.key === 'F') this.fitView();
+  }
+
+  // ─── Coordinate helpers ──────────────────────────────────────────────────────
+  private screenToWorld(sx: number, sy: number): Pt {
+    return {
+      x: (sx - this.panX()) / this.zoom(),
+      y: (sy - this.panY()) / this.zoom(),
+    };
   }
 
   private snap(pt: Pt): Pt {
-    if (!this.state.snapGrid()) return pt;
-    const g = 30; // 0.5 grid cell = 30px
-    return { x: Math.round(pt.x / g) * g, y: Math.round(pt.y / g) * g };
+    // 1. Grid snap
+    let result = pt;
+    if (this.state.snapGrid()) {
+      const g = 50 / 2; // snap to half-grid = 25px
+      result = { x: Math.round(pt.x / g) * g, y: Math.round(pt.y / g) * g };
+    }
+    // 2. Wall endpoint snap (override grid if close)
+    if (this.state.snapWall()) {
+      const threshold = 10 / this.zoom();
+      for (const w of this.walls) {
+        for (const ep of [w.start, w.end]) {
+          if (dist(pt, ep) < threshold) return ep;
+        }
+      }
+    }
+    return result;
   }
 
-  // ─── Mouse event handlers ─────────────────────────────────────────────────
+  private getSVGPoint(e: MouseEvent): Pt {
+    const svg = this.svg2dRef?.nativeElement;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  // ─── Mouse events ────────────────────────────────────────────────────────────
   onDown(e: MouseEvent): void {
     e.preventDefault();
     const tool = this.state.drawTool();
+    const screen = this.getSVGPoint(e);
 
-    // Middle-mouse always pans
-    if (e.button === 1) {
+    if (e.button === 1 || tool === 'pan') {
       this.isPanning = true;
       this.lastMouse = { x: e.clientX, y: e.clientY };
       return;
     }
-
     if (e.button !== 0) return;
 
-    if (tool === 'pan') {
-      this.isPanning = true;
-      this.lastMouse = { x: e.clientX, y: e.clientY };
-      return;
-    }
+    const world = this.snap(this.screenToWorld(screen.x, screen.y));
 
     if (tool === 'wall' || tool === 'measure') {
-      const pt = this.snap(this.svgPoint(e));
-      if (!this.drawStart) {
-        this.drawStart = pt;
-        this.drawCurrent = pt;
+      const ds = this.drawStart();
+      if (!ds) {
+        this.drawStart.set(world);
+        this.drawCurrent.set(world);
       } else {
-        // Complete the element
-        const end = this.snap(this.svgPoint(e));
+        const end = world;
         if (tool === 'wall') {
-          this.walls = [...this.walls, { id: crypto.randomUUID(), start: this.drawStart, end }];
+          this.walls = [...this.walls, { id: uid(), start: ds, end, meta: { ...DEFAULT_WALL } }];
+          this.history.push('Draw wall');
+          // chain: start next wall from end of this one
+          this.drawStart.set(end);
+          this.drawCurrent.set(end);
         } else {
-          this.measures = [...this.measures, { id: crypto.randomUUID(), start: this.drawStart, end }];
+          this.measures = [...this.measures, { id: uid(), start: ds, end, meta: { unit: 'm' } }];
+          this.history.push('Add measure');
+          this.drawStart.set(null);
+          this.drawCurrent.set(null);
         }
-        this.drawStart = null;
-        this.drawCurrent = null;
       }
       return;
     }
 
     if (tool === 'door') {
-      const pt = this.snap(this.svgPoint(e));
-      this.doors = [...this.doors, { id: crypto.randomUUID(), cx: pt, angle: 0 }];
+      this.doors = [...this.doors, { id: uid(), pos: world, wallId: null, meta: { ...DEFAULT_DOOR } }];
+      this.history.push('Place door');
       return;
     }
-
     if (tool === 'window') {
-      const pt = this.snap(this.svgPoint(e));
-      this.windows = [...this.windows, { id: crypto.randomUUID(), cx: pt, angle: 0 }];
+      this.windows = [...this.windows, { id: uid(), pos: world, wallId: null, meta: { ...DEFAULT_WIN } }];
+      this.history.push('Place window');
       return;
     }
-
     if (tool === 'select') {
-      // Deselect on empty click — wall selection is in onWallClick
-      this.selectedWallId = null;
+      this.selectedId = null;
+      this.selectedType = null;
+    }
+  }
+
+  onDblClick(e: MouseEvent): void {
+    // Double-click ends wall chain
+    if (this.state.drawTool() === 'wall') {
+      this.drawStart.set(null);
+      this.drawCurrent.set(null);
     }
   }
 
   onMove(e: MouseEvent): void {
+    const screen = this.getSVGPoint(e);
+    this.cursorScreenX.set(screen.x);
+    this.cursorScreenY.set(screen.y);
+
     if (this.isPanning) {
       const dx = e.clientX - this.lastMouse.x;
       const dy = e.clientY - this.lastMouse.y;
@@ -406,164 +734,167 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (this.drawStart) {
-      this.drawCurrent = this.snap(this.svgPoint(e));
+    const raw = this.screenToWorld(screen.x, screen.y);
+    const snapped = this.snap(raw);
+    this.snapPt.set(snapped);
+
+    if (this.drawStart()) {
+      this.drawCurrent.set(snapped);
     }
   }
 
   onUp(e: MouseEvent): void {
-    if (e.button === 1 || this.state.drawTool() === 'pan') {
-      this.isPanning = false;
-    }
+    if (e.button === 1 || this.state.drawTool() === 'pan') this.isPanning = false;
   }
 
   onLeave(): void {
     this.isPanning = false;
-    // Cancel in-progress draw when mouse leaves canvas
-    if (this.drawStart) {
-      this.drawStart = null;
-      this.drawCurrent = null;
-    }
+    this.snapPt.set(null);
   }
 
   onWheel(e: WheelEvent): void {
     e.preventDefault();
-    const svg = this.svg2dRef?.nativeElement;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const cursorX = e.clientX - rect.left;
-    const cursorY = e.clientY - rect.top;
-
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const newZoom = Math.min(4, Math.max(0.15, this.zoom() * factor));
+    const sx = this.cursorScreenX();
+    const sy = this.cursorScreenY();
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const newZoom = Math.min(5, Math.max(0.1, this.zoom() * factor));
     const ratio = newZoom / this.zoom();
-
-    // Adjust pan so cursor point stays fixed
-    this.panX.update(px => cursorX - ratio * (cursorX - px));
-    this.panY.update(py => cursorY - ratio * (cursorY - py));
+    this.panX.update(px => sx - ratio * (sx - px));
+    this.panY.update(py => sy - ratio * (sy - py));
     this.zoom.set(newZoom);
   }
 
-  // ─── Wall click (for selection) ───────────────────────────────────────────
-  onWallClick(wall: Wall, e: MouseEvent): void {
+  // ─── Element selection ───────────────────────────────────────────────────────
+  selectElem(id: string, type: 'wall' | 'door' | 'window' | 'measure', e: MouseEvent): void {
     if (this.state.drawTool() !== 'select') return;
     e.stopPropagation();
-    this.selectedWallId = wall.id;
+    this.selectedId = id;
+    this.selectedType = type;
+    // Update global selection state for properties panel
+    if (type === 'wall') this.state.setSelectionState('wall');
+    else this.state.setSelectionState('furniture');
   }
 
-  // ─── Zoom controls ────────────────────────────────────────────────────────
-  zoomIn(): void {
-    this.zoom.update(z => Math.min(4, z * 1.2));
+  deleteSelected(): void {
+    if (!this.selectedId) return;
+    const id = this.selectedId;
+    this.walls    = this.walls.filter(w => w.id !== id);
+    this.doors    = this.doors.filter(d => d.id !== id);
+    this.windows  = this.windows.filter(w => w.id !== id);
+    this.measures = this.measures.filter(m => m.id !== id);
+    this.history.push('Delete element');
+    this.selectedId = null;
+    this.selectedType = null;
+    this.state.setSelectionState('none');
   }
 
-  zoomOut(): void {
-    this.zoom.update(z => Math.max(0.15, z / 1.2));
+  // ─── Zoom controls ───────────────────────────────────────────────────────────
+  zoomIn():  void { this.zoom.update(z => Math.min(5, z * 1.25)); }
+  zoomOut(): void { this.zoom.update(z => Math.max(0.1, z / 1.25)); }
+
+  fitView(): void {
+    if (this.walls.length === 0) { this.zoom.set(1); this.panX.set(50); this.panY.set(50); return; }
+    const allX = this.walls.flatMap(w => [w.start.x, w.end.x]);
+    const allY = this.walls.flatMap(w => [w.start.y, w.end.y]);
+    const minX = Math.min(...allX) - 60, maxX = Math.max(...allX) + 60;
+    const minY = Math.min(...allY) - 60, maxY = Math.max(...allY) + 60;
+    const rangeX = maxX - minX, rangeY = maxY - minY;
+    const w = this.canvasW(), h = this.canvasH();
+    const z = Math.min(5, Math.max(0.1, Math.min(w / rangeX, h / rangeY) * 0.9));
+    this.zoom.set(z);
+    this.panX.set((w - rangeX * z) / 2 - minX * z);
+    this.panY.set((h - rangeY * z) / 2 - minY * z);
   }
 
-  resetView(): void {
-    this.zoom.set(1);
-    this.panX.set(0);
-    this.panY.set(0);
+  // ─── Wall rendering helpers ──────────────────────────────────────────────────
+  wallPoly(w: Wall): string { return wallPolygon(w); }
+
+  wallLabel(w: Wall): string {
+    const d = dist(w.start, w.end) / PIXELS_PER_METER;
+    return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
   }
 
-  // ─── Measure labels ───────────────────────────────────────────────────────
+  wallLabelTransform(w: Wall): string {
+    const angle = wallAngle(w);
+    const cx = (w.start.x + w.end.x) / 2;
+    const cy = (w.start.y + w.end.y) / 2;
+    const offset = (w.meta.thickness / 2000) * PIXELS_PER_METER + 10 / this.zoom();
+    const nx = Math.sin(angle * Math.PI / 180);
+    const ny = -Math.cos(angle * Math.PI / 180);
+    return `translate(${cx + nx * offset},${cy + ny * offset}) rotate(${angle < -90 || angle > 90 ? angle + 180 : angle})`;
+  }
+
+  previewWallPoly(): string {
+    const s = this.drawStart(); const c = this.drawCurrent();
+    if (!s || !c) return '';
+    return wallPolygon({ id: '', start: s, end: c, meta: { ...DEFAULT_WALL } });
+  }
+
+  // ─── Door rendering ──────────────────────────────────────────────────────────
+  doorArc(d: Door2D): string { return doorPath(d); }
+
+  // ─── Measure label ───────────────────────────────────────────────────────────
   measureLabel(m: Measure): string {
-    const dx = m.end.x - m.start.x;
-    const dy = m.end.y - m.start.y;
-    const px = Math.sqrt(dx * dx + dy * dy);
-    // 60px = 0.5m
-    const meters = px / 120;
-    return meters.toFixed(2) + ' m';
+    const d = dist(m.start, m.end) / PIXELS_PER_METER;
+    return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
   }
 
-  previewMeasureLabel(): string {
-    if (!this.drawStart || !this.drawCurrent) return '';
-    const dx = this.drawCurrent.x - this.drawStart.x;
-    const dy = this.drawCurrent.y - this.drawStart.y;
-    const px = Math.sqrt(dx * dx + dy * dy);
-    const meters = px / 120;
-    return meters.toFixed(2) + ' m';
-  }
-
-  // ─── DXF/DWG upload ───────────────────────────────────────────────────────
-  onFileUpload(event: Event): void {
-    const input = event.target as HTMLInputElement;
+  // ─── DXF upload ──────────────────────────────────────────────────────────────
+  onFileUpload(e: Event): void {
+    const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-
     if (file.name.toLowerCase().endsWith('.dwg')) {
-      this.showBanner('DWG is proprietary — please export to DXF from AutoCAD');
+      this.showBanner('DWG is proprietary — export to DXF from AutoCAD first');
       input.value = '';
       return;
     }
-
-    if (file.name.toLowerCase().endsWith('.dxf')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        const parsed = this.parseDxf(text);
-        if (parsed.length === 0) {
-          this.showBanner('No LINE entities found in the DXF file');
-        } else {
-          this.walls = parsed;
-          this.resetView();
-        }
-      };
-      reader.readAsText(file);
-    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const parsed = this.parseDxf(ev.target?.result as string);
+      if (parsed.length === 0) { this.showBanner('No LINE entities found in DXF'); return; }
+      this.walls = parsed;
+      this.history.push('Import DXF');
+      this.fitView();
+    };
+    reader.readAsText(file);
     input.value = '';
   }
 
   private showBanner(msg: string): void {
-    this.dwgBanner = msg;
-    if (this.dwgBannerTimer) clearTimeout(this.dwgBannerTimer);
-    this.dwgBannerTimer = setTimeout(() => { this.dwgBanner = null; }, 5000);
+    this.banner = msg;
+    if (this.bannerTimer) clearTimeout(this.bannerTimer);
+    this.bannerTimer = setTimeout(() => { this.banner = null; }, 5000);
   }
 
-  parseDxf(text: string): Wall[] {
+  private parseDxf(text: string): Wall[] {
     const walls: Wall[] = [];
     const lines = text.split('\n').map(l => l.trim());
     for (let i = 0; i < lines.length - 1; i++) {
-      if (lines[i] === '0' && lines[i + 1] === 'LINE') {
-        const coords: Record<string, number> = {};
-        for (let j = i + 2; j < Math.min(i + 30, lines.length - 1); j++) {
-          const code = lines[j];
-          const val = parseFloat(lines[j + 1]);
-          if (!isNaN(val)) coords[code] = val;
-          j++;
-        }
-        if (coords['10'] !== undefined) {
-          walls.push({
-            id: crypto.randomUUID(),
-            start: { x: coords['10'], y: coords['20'] ?? 0 },
-            end: { x: coords['11'] ?? 0, y: coords['21'] ?? 0 },
-          });
+      if (lines[i] === '0' && (lines[i + 1] === 'LINE' || lines[i + 1] === 'LWPOLYLINE')) {
+        if (lines[i + 1] === 'LINE') {
+          const c: Record<string, number> = {};
+          for (let j = i + 2; j < Math.min(i + 40, lines.length - 1); j += 2) {
+            const v = parseFloat(lines[j + 1]);
+            if (!isNaN(v)) c[lines[j]] = v;
+          }
+          if (c['10'] !== undefined)
+            walls.push({ id: uid(), start: { x: c['10'], y: -(c['20'] ?? 0) }, end: { x: c['11'] ?? 0, y: -(c['21'] ?? 0) }, meta: { ...DEFAULT_WALL } });
         }
       }
     }
-
-    // Normalize to fit within ~600×600 units centered
-    if (walls.length === 0) return walls;
+    if (!walls.length) return walls;
     const allX = walls.flatMap(w => [w.start.x, w.end.x]);
     const allY = walls.flatMap(w => [w.start.y, w.end.y]);
     const minX = Math.min(...allX), maxX = Math.max(...allX);
     const minY = Math.min(...allY), maxY = Math.max(...allY);
-    const rangeX = maxX - minX || 1;
-    const rangeY = maxY - minY || 1;
-    const scale = 600 / Math.max(rangeX, rangeY);
-    const offsetX = (600 - rangeX * scale) / 2;
-    const offsetY = (600 - rangeY * scale) / 2;
-
+    const sc   = 600 / (Math.max(maxX - minX, maxY - minY) || 1);
+    const ox   = (600 - (maxX - minX) * sc) / 2;
+    const oy   = (600 - (maxY - minY) * sc) / 2;
     return walls.map(w => ({
       ...w,
-      start: {
-        x: (w.start.x - minX) * scale + offsetX,
-        y: (w.start.y - minY) * scale + offsetY,
-      },
-      end: {
-        x: (w.end.x - minX) * scale + offsetX,
-        y: (w.end.y - minY) * scale + offsetY,
-      },
+      start: { x: (w.start.x - minX) * sc + ox, y: (w.start.y - minY) * sc + oy },
+      end:   { x: (w.end.x   - minX) * sc + ox, y: (w.end.y   - minY) * sc + oy },
     }));
   }
 }
