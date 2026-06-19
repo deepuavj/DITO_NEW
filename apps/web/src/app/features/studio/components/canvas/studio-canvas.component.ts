@@ -606,13 +606,22 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   onDrop3d(e: DragEvent): void {
     e.preventDefault();
-    e.stopPropagation(); // prevent studio.component's onDrop from also firing
+    e.stopPropagation();
     const raw = e.dataTransfer?.getData('application/dito-asset');
     if (!raw) return;
     try {
       const asset = JSON.parse(raw);
       this.metadataEngine.register(asset.id, asset.metadata);
-      this.sceneEngine.addObject(asset.id, asset.name, [0, 0, 0]);
+      // Place at room center, not origin — walls live at 1–6m range
+      const walls = this.floorPlan.walls();
+      let cx = 3.5, cz = 3;
+      if (walls.length > 0) {
+        const allX = walls.flatMap(w => [w.start.x, w.end.x]);
+        const allZ = walls.flatMap(w => [w.start.y, w.end.y]);
+        cx = (Math.min(...allX) + Math.max(...allX)) / 2 / 100;
+        cz = (Math.min(...allZ) + Math.max(...allZ)) / 2 / 100;
+      }
+      this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
       this.history.push(`Added ${asset.name}`);
     } catch {}
   }

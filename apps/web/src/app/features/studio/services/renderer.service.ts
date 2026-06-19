@@ -120,38 +120,44 @@ export class RendererService implements OnDestroy {
       (mesh.material as THREE.MeshStandardMaterial).color.set(wall.meta.color);
     }
 
-    // Doors — brown frame box
+    const DEG2RAD = Math.PI / 180;
+    const WALL_THICK = 0.25; // slightly thicker than 200mm wall so mesh pokes through
+
+    // Doors — brown box filling wall opening
     for (const door of doors) {
       const w = door.meta.width / 1000, h = door.meta.height / 1000;
       const px = door.pos.x / PIXELS_PER_METER, pz = door.pos.y / PIXELS_PER_METER;
+      // angle is stored in degrees by nearestWallPoint
+      const rotY = -(door.angle * DEG2RAD);
       let mesh = this.floorMeshMap.get(door.id);
       if (!mesh) {
         const mat = new THREE.MeshStandardMaterial({ color: '#8B5E3C', roughness: 0.8 });
-        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.05), mat);
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
         mesh.castShadow = true;
         this.threeScene.add(mesh);
         this.floorMeshMap.set(door.id, mesh);
       }
-      mesh.scale.set(w, h, 1);
+      mesh.scale.set(w, h, WALL_THICK);
       mesh.position.set(px, h / 2, pz);
-      mesh.rotation.set(0, -door.angle, 0);
+      mesh.rotation.set(0, rotY, 0);
     }
 
-    // Windows — blue-tinted glass box
+    // Windows — semi-transparent blue box filling wall opening
     for (const win of windows) {
       const w = win.meta.width / 1000, h = win.meta.height / 1000;
       const px = win.pos.x / PIXELS_PER_METER, pz = win.pos.y / PIXELS_PER_METER;
       const sillH = win.meta.sillH / 1000;
+      const rotY = -(win.angle * DEG2RAD);
       let mesh = this.floorMeshMap.get(win.id);
       if (!mesh) {
-        const mat = new THREE.MeshStandardMaterial({ color: '#93C5FD', roughness: 0.1, transparent: true, opacity: 0.45 });
-        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.04), mat);
+        const mat = new THREE.MeshStandardMaterial({ color: '#93C5FD', roughness: 0.1, transparent: true, opacity: 0.5 });
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
         this.threeScene.add(mesh);
         this.floorMeshMap.set(win.id, mesh);
       }
-      mesh.scale.set(w, h, 1);
+      mesh.scale.set(w, h, WALL_THICK);
       mesh.position.set(px, sillH + h / 2, pz);
-      mesh.rotation.set(0, -win.angle, 0);
+      mesh.rotation.set(0, rotY, 0);
     }
   }
 
@@ -282,8 +288,9 @@ export class RendererService implements OnDestroy {
       0.1,
       100,
     );
-    this.camera.position.set(4, 4, 6);
-    this.camera.lookAt(0, 0, 0);
+    // Default room center: walls span 1-6m X, 1-5m Z → center ~(3.5, 0, 3)
+    this.camera.position.set(3.5, 5, 10);
+    this.camera.lookAt(3.5, 0, 3);
   }
 
   private setupLights(): void {
@@ -313,7 +320,7 @@ export class RendererService implements OnDestroy {
     this.controls.minDistance = 1;
     this.controls.maxDistance = 20;
     this.controls.maxPolarAngle = Math.PI / 2;
-    this.controls.target.set(0, 0.5, 0);
+    this.controls.target.set(3.5, 0, 3);
   }
 
   private removeFromScene(id: string): void {
