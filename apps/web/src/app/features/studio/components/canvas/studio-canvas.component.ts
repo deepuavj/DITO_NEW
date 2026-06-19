@@ -435,6 +435,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   private readonly metadataEngine = inject(MetadataEngine);
   private readonly injector       = inject(Injector);
   private resizeObserver!: ResizeObserver;
+  private threeInitialized = false;
 
   // ─── 2D scene data via FloorPlanService ─────────────────────────────────────
   get walls():    FPWall[]    { return this.floorPlan.walls(); }
@@ -559,6 +560,12 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     } else {
       this.observeCanvasSize();
     }
+    // Watch for switch from 2D to 3D — DOM must render the canvas first
+    effect(() => {
+      if (this.state.viewMode() === '3d' && !this.threeInitialized) {
+        requestAnimationFrame(() => this.init3D());
+      }
+    }, { injector: this.injector });
   }
 
   private observeCanvasSize(): void {
@@ -574,34 +581,56 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   private init3D(): void {
+    if (this.threeInitialized) return;
+    this.threeInitialized = true;
     const canvas = this.canvasRef?.nativeElement;
     if (!canvas) return;
-    requestAnimationFrame(() => {
-      this.renderer.init(canvas);
-      // Sync furniture objects (no room — room comes from floor plan)
-      effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
-      effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
-      // Sync 2D floor plan (walls + doors + windows) into 3D
-      effect(() => {
-        this.renderer.syncFloorPlan(
-          this.floorPlan.walls(),
-          this.floorPlan.doors(),
-          this.floorPlan.windows(),
-        );
-      }, { injector: this.injector });
-      this.resizeObserver = new ResizeObserver(entries => {
-        const { width, height } = entries[0].contentRect;
-        if (width > 0 && height > 0) this.renderer.resize(width, height);
-      });
-      this.resizeObserver.observe(canvas.parentElement!);
+    this.renderer.init(canvas);
+    // Sync furniture objects (no room — room comes from floor plan)
+    effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
+    effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
+    // Sync 2D floor plan (walls + doors + windows) into 3D
+    effect(() => {
+      this.renderer.syncFloorPlan(
+        this.floorPlan.walls(),
+        this.floorPlan.doors(),
+        this.floorPlan.windows(),
+      );
+    }, { injector: this.injector });
+    // Clear wall highlight when selection moves away from walls
+    effect(() => {
+      const selType = this.floorPlan.selectedType();
+      if (selType !== 'wall') this.renderer.highlightWall(null);
+    }, { injector: this.injector });
+    this.resizeObserver = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) this.renderer.resize(width, height);
     });
+    this.resizeObserver.observe(canvas.parentElement!);
   }
 
   onCanvasClick(e: MouseEvent): void {
     if (this.state.mode() !== 'select') return;
     const c = this.canvasRef?.nativeElement;
     if (!c) return;
-    this.sceneEngine.select(this.renderer.pickObject(e, c));
+    const hit = this.renderer.pick(e, c);
+    if (!hit) {
+      this.sceneEngine.select(null);
+      this.floorPlan.clearSelection();
+      this.state.setSelectionState('none');
+      return;
+    }
+    if (hit.type === 'object') {
+      this.sceneEngine.select(hit.id);
+      this.floorPlan.clearSelection();
+      this.state.setSelectionState('furniture');
+    } else if (hit.type === 'wall') {
+      this.sceneEngine.select(null);
+      this.floorPlan.selectedId.set(hit.id);
+      this.floorPlan.selectedType.set('wall');
+      this.state.setSelectionState('wall');
+      this.renderer.highlightWall(hit.id);
+    }
   }
 
   onDrop3d(e: DragEvent): void {

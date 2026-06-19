@@ -110,6 +110,7 @@ export class RendererService implements OnDestroy {
         const geo = new THREE.BoxGeometry(1, 1, 1);
         const mat = new THREE.MeshStandardMaterial({ color: wall.meta.color, roughness: 0.9 });
         mesh = new THREE.Mesh(geo, mat);
+        mesh.userData['wallId'] = wall.id;
         mesh.castShadow = true; mesh.receiveShadow = true;
         this.threeScene.add(mesh);
         this.wallMeshMap.set(wall.id, mesh);
@@ -231,7 +232,16 @@ export class RendererService implements OnDestroy {
     });
   }
 
-  pickObject(event: MouseEvent, canvas: HTMLCanvasElement): string | null {
+  highlightWall(wallId: string | null): void {
+    this.wallMeshMap.forEach((mesh, id) => {
+      if (id === '__floor__') return;
+      (mesh.material as THREE.MeshStandardMaterial).emissive?.set(
+        id === wallId ? 0x334466 : 0x000000,
+      );
+    });
+  }
+
+  pick(event: MouseEvent, canvas: HTMLCanvasElement): { id: string; type: 'object' | 'wall' } | null {
     const rect = canvas.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -239,17 +249,37 @@ export class RendererService implements OnDestroy {
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
 
-    const meshes: THREE.Object3D[] = [];
+    // Check furniture first
+    const furnitureMeshes: THREE.Object3D[] = [];
     this.meshMap.forEach(group => {
-      if (group.userData['objectId']) group.traverse(c => { if (c instanceof THREE.Mesh) meshes.push(c); });
+      if (group.userData['objectId']) group.traverse(c => { if (c instanceof THREE.Mesh) furnitureMeshes.push(c); });
     });
+    const furnitureHits = raycaster.intersectObjects(furnitureMeshes, false);
+    if (furnitureHits.length) {
+      let node: THREE.Object3D | null = furnitureHits[0].object;
+      while (node && !node.userData['objectId']) node = node.parent;
+      const id = node?.userData['objectId'];
+      if (id) return { id, type: 'object' };
+    }
 
-    const hits = raycaster.intersectObjects(meshes, false);
-    if (!hits.length) return null;
+    // Check walls
+    const wallMeshes: THREE.Object3D[] = [];
+    this.wallMeshMap.forEach((mesh, id) => {
+      if (id !== '__floor__') wallMeshes.push(mesh);
+    });
+    const wallHits = raycaster.intersectObjects(wallMeshes, false);
+    if (wallHits.length) {
+      const mesh = wallHits[0].object as THREE.Mesh;
+      const wallId = mesh.userData['wallId'] as string;
+      if (wallId) return { id: wallId, type: 'wall' };
+    }
+    return null;
+  }
 
-    let node: THREE.Object3D | null = hits[0].object;
-    while (node && !node.userData['objectId']) node = node.parent;
-    return node?.userData['objectId'] ?? null;
+  /** @deprecated Use pick() instead */
+  pickObject(event: MouseEvent, canvas: HTMLCanvasElement): string | null {
+    const hit = this.pick(event, canvas);
+    return hit?.type === 'object' ? hit.id : null;
   }
 
   resize(width: number, height: number): void {
@@ -277,8 +307,28 @@ export class RendererService implements OnDestroy {
 
   private setupScene(): void {
     this.threeScene = new THREE.Scene();
-    this.threeScene.background = new THREE.Color(0xE8E8E0);
-    this.threeScene.fog = new THREE.Fog(0xE8E8E0, 15, 30);
+    // Sky gradient via canvas texture
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 2; skyCanvas.height = 256;
+    const ctx = skyCanvas.getContext('2d')!;
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#87CEEB');   // sky blue at top
+    grad.addColorStop(0.6, '#D4E9F7'); // pale blue
+    grad.addColorStop(1, '#E8EDF0');   // horizon haze
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 2, 256);
+    const skyTex = new THREE.CanvasTexture(skyCanvas);
+    skyTex.mapping = THREE.EquirectangularReflectionMapping;
+    this.threeScene.background = skyTex;
+
+    // Infinite ground plane (1km × 1km)
+    const groundGeo = new THREE.PlaneGeometry(1000, 1000);
+    const groundMat = new THREE.MeshStandardMaterial({ color: '#8A9E7A', roughness: 1.0 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    this.threeScene.add(ground);
+    this.threeScene.fog = new THREE.Fog(0xD4E9F7, 30, 150);
   }
 
   private setupCamera(canvas: HTMLCanvasElement): void {

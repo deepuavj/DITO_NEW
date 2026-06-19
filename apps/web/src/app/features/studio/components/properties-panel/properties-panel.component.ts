@@ -182,6 +182,19 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
               <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ floorPlan.selectedWall()!.meta.height }} mm</span></div>
               <div class="stat-row"><span class="stat-key">Material</span><span class="stat-val">{{ floorPlan.selectedWall()!.meta.material }}</span></div>
             </div>
+            <div class="section-label">DIMENSIONS</div>
+            <div class="prop-row">
+              <span class="prop-label">Thickness (mm)</span>
+              <input type="number" class="xyz-input" style="width:70px"
+                [value]="floorPlan.selectedWall()!.meta.thickness"
+                (change)="setWallThickness(+$any($event.target).value)" min="50" max="500" step="10" />
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Height (mm)</span>
+              <input type="number" class="xyz-input" style="width:70px"
+                [value]="floorPlan.selectedWall()!.meta.height"
+                (change)="setWallHeight(+$any($event.target).value)" min="2000" max="6000" step="100" />
+            </div>
             <div class="section-label">WALL COLOUR</div>
             <div class="swatches" style="margin-bottom:12px">
               @for (c of wallColors; track c) {
@@ -317,6 +330,20 @@ export class PropertiesPanelComponent {
     if (!w) return;
     this.floorPlan.snapshot();
     this.floorPlan.walls.update(ws => ws.map(wall => wall.id === w.id ? { ...wall, meta: { ...wall.meta, color: c } } : wall));
+  }
+
+  setWallThickness(v: number): void {
+    const w = this.floorPlan.selectedWall();
+    if (!w || v < 50 || v > 500) return;
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => ws.map(wall => wall.id === w.id ? { ...wall, meta: { ...wall.meta, thickness: v } } : wall));
+  }
+
+  setWallHeight(v: number): void {
+    const w = this.floorPlan.selectedWall();
+    if (!w || v < 2000 || v > 6000) return;
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => ws.map(wall => wall.id === w.id ? { ...wall, meta: { ...wall.meta, height: v } } : wall));
   }
 
   constructor() {
