@@ -29,10 +29,12 @@ import type { Asset } from '../../core/models/asset.models';
     .studio-root.dark {
       --canvas-bg: #080D1A; --panel-bg: rgba(14,20,35,0.96); --border: rgba(255,255,255,0.07);
       --muted: #7C8CA0; --fg: #E2E8F0; --input-bg: rgba(26,37,60,0.8);
+      --grid-minor: rgba(255,255,255,0.05); --grid-major: rgba(255,255,255,0.1);
     }
     .studio-root.light {
       --canvas-bg: #F0F2F5; --panel-bg: rgba(255,255,255,0.96); --border: rgba(0,0,0,0.1);
       --muted: #6B7280; --fg: #1F2937; --input-bg: rgba(0,0,0,0.04);
+      --grid-minor: rgba(0,0,0,0.07); --grid-major: rgba(0,0,0,0.14);
     }
     .studio-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
     .canvas-area { flex: 1; position: relative; overflow: hidden; min-width: 0; }

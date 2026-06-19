@@ -1,6 +1,7 @@
 import { Component, inject, signal, computed, output } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { StudioStateService } from '../../services/studio-state.service';
 import type { Asset } from '../../../../core/models/asset.models';
 import type { DrawTool } from '../../services/studio-state.service';
@@ -141,7 +142,9 @@ function svg(paths: string, cls = ''): string {
             </div>
           }
         </div>
-        <button class="import-btn" [innerHTML]="svgIcon(IMPORT_IC) + ' Import custom model (.glb)'"></button>
+        <button class="import-btn">
+          <span [innerHTML]="svgIcon(IMPORT_IC)"></span> Import custom model (.glb)
+        </button>
       } @else {
         <div class="panel-header">DRAWING ELEMENTS</div>
         <div class="scroll">
@@ -175,6 +178,7 @@ function svg(paths: string, cls = ''): string {
 })
 export class FurnitureLibraryComponent {
   readonly state = inject(StudioStateService);
+  private readonly san = inject(DomSanitizer);
   readonly assetSelected = output<Asset>();
   searchQuery = '';
 
@@ -183,7 +187,7 @@ export class FurnitureLibraryComponent {
   readonly CHEVRON_D = CHEVRON_D;
   readonly IMPORT_IC = IMPORT_IC;
 
-  svgIcon(paths: string) { return svg(paths); }
+  svgIcon(paths: string): SafeHtml { return this.san.bypassSecurityTrustHtml(svg(paths)); }
 
   readonly categories: FurnitureCategory[] = [
     { id: 'sofas', label: 'Sofas & Seating', count: 6, color: '#D4A017', svgPath: SOFA_IC, open: signal(true), items: [

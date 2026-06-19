@@ -2,6 +2,7 @@ import { Component, inject, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
+import { SafeHtmlPipe } from '../../../../shared/pipes/safe-html.pipe';
 import type { DrawTool, StudioMode } from '../../services/studio-state.service';
 
 /* ── Lucide-style SVG paths (24×24, stroke-only) ── */
@@ -26,7 +27,7 @@ const IC = {
 
 @Component({
   selector: 'dito-studio-toolbar',
-  imports: [CommonModule],
+  imports: [CommonModule, SafeHtmlPipe],
   styles: [`
     :host { display: block; }
     .toolbar { display: flex; align-items: center; gap: 4px; padding: 0 12px; height: 44px; background: rgba(10,15,28,0.99); border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; overflow-x: auto; scrollbar-width: none; }
@@ -81,13 +82,13 @@ const IC = {
       @if (state.viewMode() === '3d') {
         @for (t of tools3d; track t.mode) {
           <button class="tool-btn" [class.active]="state.mode()===t.mode" (click)="state.setMode(t.mode)">
-            <span class="ic" [innerHTML]="t.icon"></span>{{ t.label }}
+            <span class="ic" [innerHTML]="t.icon | safeHtml"></span>{{ t.label }}
           </button>
         }
       } @else {
         @for (t of tools2d; track t.tool) {
           <button class="tool-btn" [class.active]="state.drawTool()===t.tool" (click)="state.setDrawTool(t.tool)">
-            <span class="ic" [innerHTML]="t.icon"></span>{{ t.label }}
+            <span class="ic" [innerHTML]="t.icon | safeHtml"></span>{{ t.label }}
           </button>
         }
       }
@@ -96,34 +97,34 @@ const IC = {
 
       <!-- undo / redo -->
       <button class="icon-btn" title="Undo (Ctrl+Z)" [disabled]="!history.canUndo()" (click)="history.undo()">
-        <span class="ic" [innerHTML]="icons.undo"></span>
+        <span class="ic" [innerHTML]="icons.undo | safeHtml"></span>
       </button>
       <button class="icon-btn" title="Redo (Ctrl+Shift+Z)" [disabled]="!history.canRedo()" (click)="history.redo()">
-        <span class="ic" [innerHTML]="icons.redo"></span>
+        <span class="ic" [innerHTML]="icons.redo | safeHtml"></span>
       </button>
 
       <div class="divider"></div>
 
       <!-- grid / dims -->
       <button class="icon-btn" [class.active]="state.showGrid()" title="Toggle grid" (click)="state.showGrid.update(v=>!v)">
-        <span class="ic" [innerHTML]="icons.grid"></span>
+        <span class="ic" [innerHTML]="icons.grid | safeHtml"></span>
       </button>
       <button class="icon-btn" [class.active]="state.showDimensions()" title="Toggle dimensions" (click)="state.showDimensions.update(v=>!v)">
-        <span class="ic" [innerHTML]="icons.ruler"></span>
+        <span class="ic" [innerHTML]="icons.ruler | safeHtml"></span>
       </button>
 
       <div class="spacer"></div>
 
       <!-- theme -->
       <button class="icon-btn" (click)="state.toggleTheme()" [title]="state.theme()==='dark' ? 'Light mode' : 'Dark mode'">
-        <span class="ic" [innerHTML]="state.theme()==='dark' ? icons.sun : icons.moon"></span>
+        <span class="ic" [innerHTML]="(state.theme()==='dark' ? icons.sun : icons.moon) | safeHtml"></span>
       </button>
 
       <div class="divider"></div>
 
       <!-- save -->
       <button class="save-btn" (click)="saveClicked.emit()">
-        <span class="ic" [innerHTML]="icons.save"></span> Save
+        <span class="ic" [innerHTML]="icons.save | safeHtml"></span> Save
       </button>
     </div>
   `,

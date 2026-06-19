@@ -43,11 +43,11 @@ import { StudioStateService } from '../../services/studio-state.service';
         <svg class="grid-svg" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="0.5"/>
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--grid-minor,rgba(128,128,128,0.1))" stroke-width="0.5"/>
             </pattern>
             <pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse">
               <rect width="100" height="100" fill="url(#smallGrid)"/>
-              <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(0,0,0,0.12)" stroke-width="1"/>
+              <path d="M 100 0 L 0 0 0 100" fill="none" stroke="var(--grid-major,rgba(128,128,128,0.2))" stroke-width="1"/>
             </pattern>
           </defs>
           <rect width="100%" height="100%" fill="url(#grid)"/>
