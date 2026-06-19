@@ -175,12 +175,13 @@ export class RendererService implements OnDestroy {
     if (!group) {
       group = new THREE.Group();
       group.userData['objectId'] = obj.id;
-      const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.8 });
+      // 1×1×1m placeholder box — brightly colored so it's easy to spot
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshStandardMaterial({ color: 0xFF6600, roughness: 0.6, emissive: 0x331100 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      mesh.position.y = 0.4;
+      mesh.position.y = 0.5; // sits on floor (half-height)
       group.add(mesh);
       this.threeScene.add(group);
       this.meshMap.set(obj.id, group);
@@ -410,6 +411,7 @@ export class RendererService implements OnDestroy {
   private loop(): void {
     this.animFrameId = requestAnimationFrame(() => this.loop());
     this.controls.update();
+    this.syncScene(); // always sync furniture from SceneEngine — guaranteed every frame
     this.renderer.render(this.threeScene, this.camera);
   }
 }

@@ -597,7 +597,6 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (!canvas) return;
     this.threeInitialized = true;  // set AFTER confirming canvas exists
     this.renderer.init(canvas);
-    effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
     effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
     // Sync committed walls + live preview wall while drawing
     effect(() => {
