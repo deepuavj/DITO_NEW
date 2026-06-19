@@ -66,7 +66,7 @@ export class RegisterPage {
     this.loading.set(true);
     this.error.set(null);
     this.auth.register({ name: this.name, email: this.email, password: this.password }).subscribe({
-      next: () => this.router.navigate(['/auth/login']),
+      next: () => this.router.navigate(['/auth/login'], { replaceUrl: true }),
       error: (err) => {
         this.error.set(err?.error?.message ?? 'Registration failed.');
         this.loading.set(false);

@@ -23,6 +23,10 @@ export class SceneService {
     return this.api.patch<Scene>(`/scenes/${id}`, { sceneData, name }).pipe(map(r => r.data!));
   }
 
+  rename(id: string, name: string) {
+    return this.api.patch<Scene>(`/scenes/${id}`, { name });
+  }
+
   delete(id: string) {
     return this.api.delete(`/scenes/${id}`);
   }

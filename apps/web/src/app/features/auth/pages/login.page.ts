@@ -64,7 +64,7 @@ export class LoginPage {
     this.loading.set(true);
     this.error.set(null);
     this.auth.login({ email: this.email, password: this.password }).subscribe({
-      next: () => this.router.navigate(['/dashboard']),
+      next: () => this.router.navigate(['/dashboard'], { replaceUrl: true }),
       error: (err) => {
         this.error.set(err?.error?.message ?? 'Login failed. Check your credentials.');
         this.loading.set(false);
