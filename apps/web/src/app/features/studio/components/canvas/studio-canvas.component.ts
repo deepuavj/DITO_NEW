@@ -616,12 +616,13 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }, { injector: this.injector });
     // Wire toolbar toggles to the 3D renderer
     effect(() => { this.renderer.setGridVisible(this.state.showGrid()); }, { injector: this.injector });
-    const panel3d = canvas.parentElement!; // .panel-3d wrapper
-    const resizeObs3d = new ResizeObserver(entries => {
+    // Override the 2D resize observer with the 3D one
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) this.renderer.resize(width, height);
     });
-    resizeObs3d.observe(panel3d);
+    this.resizeObserver.observe(canvas.parentElement!);
   }
 
   onCanvasClick(e: MouseEvent): void {
@@ -672,7 +673,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
-    if (this.state.viewMode() === '3d') this.renderer.ngOnDestroy();
+    if (this.threeInitialized) this.renderer.ngOnDestroy();
     if (this.bannerTimer) clearTimeout(this.bannerTimer);
   }
 

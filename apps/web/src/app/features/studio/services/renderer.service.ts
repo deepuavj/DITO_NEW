@@ -294,7 +294,7 @@ export class RendererService implements OnDestroy {
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height, false);
   }
 
   ngOnDestroy(): void {
@@ -309,7 +309,7 @@ export class RendererService implements OnDestroy {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     const w = canvas.clientWidth || canvas.parentElement?.clientWidth || 800;
     const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 600;
-    this.renderer.setSize(w, h);
+    this.renderer.setSize(w, h, false);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
