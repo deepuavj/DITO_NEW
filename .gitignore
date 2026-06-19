@@ -7,3 +7,4 @@ dist/
 .angular/cache
 coverage/
 .nyc_output/
+.claude/
