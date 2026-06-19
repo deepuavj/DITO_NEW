@@ -570,8 +570,9 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   private tryInit3D(): void {
     const canvas = this.canvasRef?.nativeElement;
-    if (!canvas) {
-      // Canvas not in DOM yet — Angular hasn't flushed CD; retry next frame
+    const parent = canvas?.parentElement;
+    // Wait until canvas is in DOM and has non-zero layout dimensions
+    if (!canvas || (canvas.clientWidth === 0 && (parent?.clientWidth ?? 0) === 0)) {
       requestAnimationFrame(() => this.tryInit3D());
       return;
     }

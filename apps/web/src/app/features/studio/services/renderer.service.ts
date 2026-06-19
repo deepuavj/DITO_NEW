@@ -306,7 +306,9 @@ export class RendererService implements OnDestroy {
   private setupRenderer(canvas: HTMLCanvasElement): void {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+    const w = canvas.clientWidth || canvas.parentElement?.clientWidth || 800;
+    const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 600;
+    this.renderer.setSize(w, h);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -341,17 +343,22 @@ export class RendererService implements OnDestroy {
     // Grid helper — 20×20 grid at 1m spacing, toggled by showGrid()
     this.gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0xCCCCCC);
     this.gridHelper.position.set(3.5, 0.01, 3);
-    this.gridHelper.material.transparent = true;
-    this.gridHelper.material.opacity = 0.4;
+    // material can be Material | Material[] — handle both cases
+    const mats = Array.isArray(this.gridHelper.material)
+      ? this.gridHelper.material
+      : [this.gridHelper.material];
+    mats.forEach(m => { m.transparent = true; m.opacity = 0.4; });
     this.threeScene.add(this.gridHelper);
   }
 
   setGridVisible(v: boolean): void { if (this.gridHelper) this.gridHelper.visible = v; }
 
   private setupCamera(canvas: HTMLCanvasElement): void {
+    const w = canvas.clientWidth || canvas.parentElement?.clientWidth || 800;
+    const h = canvas.clientHeight || canvas.parentElement?.clientHeight || 600;
     this.camera = new THREE.PerspectiveCamera(
       50,
-      canvas.clientWidth / canvas.clientHeight,
+      w / h,
       0.1,
       200,
     );
