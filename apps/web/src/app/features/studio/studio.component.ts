@@ -78,14 +78,15 @@ export class StudioComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private toastTimer?: ReturnType<typeof setTimeout>;
 
-  ngOnInit(): void {
-    // Restore persisted theme
+  constructor() {
+    // Restore persisted theme (must run before first render)
     const saved = localStorage.getItem('dito-theme') as Theme | null;
     if (saved === 'light' || saved === 'dark') this.state.theme.set(saved);
-
-    // Persist theme changes
+    // Persist theme changes (effect requires injection context)
     effect(() => { localStorage.setItem('dito-theme', this.state.theme()); });
+  }
 
+  ngOnInit(): void {
     const sceneId = this.id();
     if (sceneId) this.loadScene(sceneId);
   }
