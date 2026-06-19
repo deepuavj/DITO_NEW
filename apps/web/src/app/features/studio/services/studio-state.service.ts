@@ -15,6 +15,7 @@ export class StudioStateService {
   readonly viewMode = signal<ViewMode>('3d');
   readonly mode = signal<StudioMode>('select');
   readonly isSaving = signal(false);
+  readonly savedToast = signal(false);
 
   readonly leftPanelVisible = signal(true);
   readonly rightPanelVisible = signal(true);

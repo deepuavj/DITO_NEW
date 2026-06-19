@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
+import { FloorPlanService } from '../../services/floor-plan.service';
 import { SceneEngine } from '../../../../engines/scene/scene.engine';
 import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import type { FloorMaterial } from '../../services/studio-state.service';
@@ -173,17 +174,58 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
         }
 
         @if (activeTab() === 'Wall') {
-          <div class="section-label">WALL PROPERTIES</div>
-          <div class="stat-card">
-            <div class="stat-row"><span class="stat-key">Thickness</span><span class="stat-val">200 mm</span></div>
-            <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ state.roomSize().height }}m</span></div>
-          </div>
-          <div class="section-label">WALL COLOUR</div>
-          <div class="swatches" style="margin-bottom:12px">
-            @for (c of wallColors; track c) {
-              <button class="swatch" [style.background]="c" [class.sel]="state.wallColor()===c" (click)="state.wallColor.set(c)"></button>
-            }
-          </div>
+          @if (state.viewMode() === '2d' && floorPlan.selectedWall()) {
+            <div class="section-label">WALL METADATA</div>
+            <div class="stat-card">
+              <div class="stat-row"><span class="stat-key">Length</span><span class="stat-val">{{ floorPlan.wallLengthM(floorPlan.selectedWall()!) }} m</span></div>
+              <div class="stat-row"><span class="stat-key">Thickness</span><span class="stat-val">{{ floorPlan.selectedWall()!.meta.thickness }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ floorPlan.selectedWall()!.meta.height }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Material</span><span class="stat-val">{{ floorPlan.selectedWall()!.meta.material }}</span></div>
+            </div>
+            <div class="section-label">WALL COLOUR</div>
+            <div class="swatches" style="margin-bottom:12px">
+              @for (c of wallColors; track c) {
+                <button class="swatch" [style.background]="c" [class.sel]="floorPlan.selectedWall()!.meta.color===c" (click)="setWallColor(c)"></button>
+              }
+            </div>
+          } @else {
+            <div class="section-label">WALL PROPERTIES</div>
+            <div class="stat-card">
+              <div class="stat-row"><span class="stat-key">Thickness</span><span class="stat-val">200 mm</span></div>
+              <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ state.roomSize().height }}m</span></div>
+            </div>
+            <div class="section-label">WALL COLOUR</div>
+            <div class="swatches" style="margin-bottom:12px">
+              @for (c of wallColors; track c) {
+                <button class="swatch" [style.background]="c" [class.sel]="state.wallColor()===c" (click)="state.wallColor.set(c)"></button>
+              }
+            </div>
+          }
+        }
+
+        @if (activeTab() === 'Door') {
+          @if (floorPlan.selectedDoor()) {
+            <div class="section-label">DOOR METADATA</div>
+            <div class="stat-card">
+              <div class="stat-row"><span class="stat-key">Width</span><span class="stat-val">{{ floorPlan.selectedDoor()!.meta.width }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ floorPlan.selectedDoor()!.meta.height }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Swing</span><span class="stat-val">{{ floorPlan.selectedDoor()!.meta.swingDir }}</span></div>
+              <div class="stat-row"><span class="stat-key">Open angle</span><span class="stat-val">{{ floorPlan.selectedDoor()!.meta.openAngle }}°</span></div>
+              <div class="stat-row"><span class="stat-key">Angle</span><span class="stat-val">{{ (floorPlan.selectedDoor()!.angle * 180 / 3.14159) | number:'1.0-0' }}°</span></div>
+            </div>
+          }
+        }
+
+        @if (activeTab() === 'Window') {
+          @if (floorPlan.selectedWindow()) {
+            <div class="section-label">WINDOW METADATA</div>
+            <div class="stat-card">
+              <div class="stat-row"><span class="stat-key">Width</span><span class="stat-val">{{ floorPlan.selectedWindow()!.meta.width }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ floorPlan.selectedWindow()!.meta.height }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Sill height</span><span class="stat-val">{{ floorPlan.selectedWindow()!.meta.sillH }} mm</span></div>
+              <div class="stat-row"><span class="stat-key">Angle</span><span class="stat-val">{{ (floorPlan.selectedWindow()!.angle * 180 / 3.14159) | number:'1.0-0' }}°</span></div>
+            </div>
+          }
         }
 
         @if (activeTab() === 'Room') {
@@ -228,14 +270,22 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
 export class PropertiesPanelComponent {
   readonly state = inject(StudioStateService);
   readonly history = inject(HistoryService);
+  readonly floorPlan = inject(FloorPlanService);
   readonly sceneEngine = inject(SceneEngine);
   readonly metaEngine = inject(MetadataEngine);
 
   readonly activeTab = signal('Overview');
 
   readonly activeTabs = computed(() => {
+    const is2d = this.state.viewMode() === '2d';
     switch (this.state.selectionState()) {
-      case 'furniture': return ['Properties', 'Transform', 'History'];
+      case 'furniture':
+        if (is2d) {
+          const t = this.floorPlan.selectedType();
+          if (t === 'door') return ['Door', 'History'];
+          if (t === 'window') return ['Window', 'History'];
+        }
+        return ['Properties', 'Transform', 'History'];
       case 'wall': return ['Wall', 'History'];
       case 'room': return ['Room', 'History'];
       default: return ['Overview', 'History'];
@@ -261,6 +311,13 @@ export class PropertiesPanelComponent {
   ];
   readonly furnitureColors = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#D97706', '#16A34A', '#0891B2', '#E2E8F0'];
   readonly materials = ['Fabric', 'Leather', 'Velvet', 'Wood', 'Metal', 'Rattan'];
+
+  setWallColor(c: string): void {
+    const w = this.floorPlan.selectedWall();
+    if (!w) return;
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => ws.map(wall => wall.id === w.id ? { ...wall, meta: { ...wall.meta, color: c } } : wall));
+  }
 
   constructor() {
     effect(() => { this.activeTab.set(this.activeTabs()[0]); });

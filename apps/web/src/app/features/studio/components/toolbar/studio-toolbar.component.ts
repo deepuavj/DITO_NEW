@@ -1,10 +1,11 @@
 import { Component, inject, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
 import { SafeHtmlPipe } from '../../../../shared/pipes/safe-html.pipe';
-import type { DrawTool, StudioMode } from '../../services/studio-state.service';
+import type { StudioMode } from '../../services/studio-state.service';
 
 /* ── Lucide-style SVG paths (24×24, stroke-only) ── */
 const IC = {
@@ -64,9 +65,19 @@ const IC = {
     /* logo */
     .logo { font-size: 13px; font-weight: 800; letter-spacing: 0.08em; color: #E2E8F0; margin-right: 4px; flex-shrink: 0; }
     .logo span { color: #3B82F6; }
+    /* back btn */
+    .back-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: none; border: 1px solid transparent; border-radius: 6px; color: #6B7280; cursor: pointer; transition: all 130ms; flex-shrink: 0; }
+    .back-btn:hover { background: rgba(255,255,255,0.06); color: #C4C9D4; }
+    /* saved indicator */
+    .saved-pill { font-size: 10px; font-weight: 600; color: #22C55E; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); border-radius: 12px; padding: 2px 8px; flex-shrink: 0; }
   `],
   template: `
     <div class="toolbar">
+      <!-- back to dashboard -->
+      <button class="back-btn" title="Back to Dashboard" (click)="goHome()">
+        <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+      </button>
+
       <div class="logo">DI<span>TO</span></div>
 
       <div class="divider"></div>
@@ -79,22 +90,15 @@ const IC = {
 
       <div class="divider"></div>
 
-      <!-- mode-specific tools -->
+      <!-- 3D-only mode tools (2D tools live in the left panel) -->
       @if (state.viewMode() === '3d') {
         @for (t of tools3d; track t.mode) {
           <button class="tool-btn" [class.active]="state.mode()===t.mode" (click)="state.setMode(t.mode)">
             <span class="ic" [innerHTML]="t.icon | safeHtml"></span>{{ t.label }}
           </button>
         }
-      } @else {
-        @for (t of tools2d; track t.tool) {
-          <button class="tool-btn" [class.active]="state.drawTool()===t.tool" (click)="state.setDrawTool(t.tool)">
-            <span class="ic" [innerHTML]="t.icon | safeHtml"></span>{{ t.label }}
-          </button>
-        }
+        <div class="divider"></div>
       }
-
-      <div class="divider"></div>
 
       <!-- undo / redo -->
       <button class="icon-btn" title="Undo (Ctrl+Z)"
@@ -120,6 +124,10 @@ const IC = {
 
       <div class="spacer"></div>
 
+      @if (state.savedToast()) {
+        <span class="saved-pill">✓ Saved</span>
+      }
+
       <!-- theme -->
       <button class="icon-btn" (click)="state.toggleTheme()" [title]="state.theme()==='dark' ? 'Light mode' : 'Dark mode'">
         <span class="ic" [innerHTML]="(state.theme()==='dark' ? icons.sun : icons.moon) | safeHtml"></span>
@@ -128,8 +136,9 @@ const IC = {
       <div class="divider"></div>
 
       <!-- save -->
-      <button class="save-btn" (click)="saveClicked.emit()">
-        <span class="ic" [innerHTML]="icons.save | safeHtml"></span> Save
+      <button class="save-btn" (click)="saveClicked.emit()" [disabled]="state.isSaving()">
+        <span class="ic" [innerHTML]="icons.save | safeHtml"></span>
+        {{ state.isSaving() ? 'Saving…' : 'Save' }}
       </button>
     </div>
   `,
@@ -138,17 +147,20 @@ export class StudioToolbarComponent {
   readonly state = inject(StudioStateService);
   readonly history = inject(HistoryService);
   readonly floorPlan = inject(FloorPlanService);
+  private readonly router = inject(Router);
   readonly saveClicked = output();
   readonly renderClicked = output();
   readonly icons = IC;
 
+  goHome(): void { this.router.navigate(['/dashboard']); }
+
   doUndo(): void {
-    if (this.state.viewMode() === '2d') this.floorPlan.undo();
+    if (this.state.viewMode() === '2d') { this.floorPlan.undo(); this.history.undo(); }
     else this.history.undo();
   }
 
   doRedo(): void {
-    if (this.state.viewMode() === '2d') this.floorPlan.redo();
+    if (this.state.viewMode() === '2d') { this.floorPlan.redo(); this.history.redo(); }
     else this.history.redo();
   }
 
@@ -157,14 +169,5 @@ export class StudioToolbarComponent {
     { mode: 'move',   label: 'Move',   icon: IC.move   },
     { mode: 'rotate', label: 'Rotate', icon: IC.rotate },
     { mode: 'scale',  label: 'Scale',  icon: IC.scale  },
-  ];
-
-  readonly tools2d: { tool: DrawTool; label: string; icon: string }[] = [
-    { tool: 'select',  label: 'Select',  icon: IC.select  },
-    { tool: 'pan',     label: 'Pan',     icon: IC.pan     },
-    { tool: 'wall',    label: 'Wall',    icon: IC.wall    },
-    { tool: 'door',    label: 'Door',    icon: IC.door    },
-    { tool: 'window',  label: 'Window',  icon: IC.window  },
-    { tool: 'measure', label: 'Measure', icon: IC.measure },
   ];
 }

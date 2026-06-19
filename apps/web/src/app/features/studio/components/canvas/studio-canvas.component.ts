@@ -758,6 +758,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     const raw = this.screenToWorld(screen.x, screen.y);
     const snapped = this.snap(raw);
     this.snapPt.set(snapped);
+    this.state.cursorX.set(+(raw.x / PIXELS_PER_METER).toFixed(2));
+    this.state.cursorY.set(+(raw.y / PIXELS_PER_METER).toFixed(2));
 
     if (this.drawStart()) {
       this.drawCurrent.set(snapped);
@@ -783,6 +785,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.panX.update(px => sx - ratio * (sx - px));
     this.panY.update(py => sy - ratio * (sy - py));
     this.zoom.set(newZoom);
+    this.state.zoom2d.set(Math.round(newZoom * 100));
   }
 
   // ─── Element selection ───────────────────────────────────────────────────────
@@ -791,9 +794,11 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     e.stopPropagation();
     this.selectedId = id;
     this.selectedType = type;
-    // Update global selection state for properties panel
+    this.floorPlan.selectedId.set(id);
+    this.floorPlan.selectedType.set(type === 'measure' ? null : type);
     if (type === 'wall') this.state.setSelectionState('wall');
-    else this.state.setSelectionState('furniture');
+    else if (type === 'door' || type === 'window') this.state.setSelectionState('furniture');
+    else this.state.setSelectionState('none');
   }
 
   deleteSelected(): void {
@@ -807,12 +812,13 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.history.push('Delete element');
     this.selectedId = null;
     this.selectedType = null;
+    this.floorPlan.clearSelection();
     this.state.setSelectionState('none');
   }
 
   // ─── Zoom controls ───────────────────────────────────────────────────────────
-  zoomIn():  void { this.zoom.update(z => Math.min(5, z * 1.25)); }
-  zoomOut(): void { this.zoom.update(z => Math.max(0.1, z / 1.25)); }
+  zoomIn():  void { this.zoom.update(z => Math.min(5, z * 1.25)); this.state.zoom2d.set(Math.round(this.zoom() * 100)); }
+  zoomOut(): void { this.zoom.update(z => Math.max(0.1, z / 1.25)); this.state.zoom2d.set(Math.round(this.zoom() * 100)); }
 
   fitView(): void {
     const walls = this.floorPlan.walls();

@@ -1,8 +1,9 @@
-import { Component, inject, OnInit, input } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, input, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { StudioStateService } from './services/studio-state.service';
 import { HistoryService } from './services/history.service';
+import { FloorPlanService } from './services/floor-plan.service';
 import { StudioCanvasComponent } from './components/canvas/studio-canvas.component';
 import { FurnitureLibraryComponent } from './components/assets-panel/assets-panel.component';
 import { PropertiesPanelComponent } from './components/properties-panel/properties-panel.component';
@@ -12,6 +13,7 @@ import { SceneEngine } from '../../engines/scene/scene.engine';
 import { MetadataEngine } from '../../engines/metadata/metadata.engine';
 import { SceneService } from '../../core/services/scene.service';
 import type { Asset } from '../../core/models/asset.models';
+import type { Theme } from './services/studio-state.service';
 
 @Component({
   selector: 'app-studio',
@@ -65,28 +67,45 @@ import type { Asset } from '../../core/models/asset.models';
     </div>
   `,
 })
-export class StudioComponent implements OnInit {
+export class StudioComponent implements OnInit, OnDestroy {
   readonly id = input<string>();
   readonly state = inject(StudioStateService);
   private readonly history = inject(HistoryService);
+  private readonly floorPlan = inject(FloorPlanService);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly metadataEngine = inject(MetadataEngine);
   private readonly sceneService = inject(SceneService);
   private readonly router = inject(Router);
+  private toastTimer?: ReturnType<typeof setTimeout>;
 
   ngOnInit(): void {
+    // Restore persisted theme
+    const saved = localStorage.getItem('dito-theme') as Theme | null;
+    if (saved === 'light' || saved === 'dark') this.state.theme.set(saved);
+
+    // Persist theme changes
+    effect(() => { localStorage.setItem('dito-theme', this.state.theme()); });
+
     const sceneId = this.id();
     if (sceneId) this.loadScene(sceneId);
   }
 
+  ngOnDestroy(): void {
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+  }
+
   onKeyDown(event: KeyboardEvent): void {
     const ctrl = event.ctrlKey || event.metaKey;
-    if (ctrl && event.shiftKey && event.key === 'z') { event.preventDefault(); this.history.redo(); }
-    else if (ctrl && event.key === 'z') { event.preventDefault(); this.history.undo(); }
-    else if (ctrl && event.key === 's') { event.preventDefault(); this.onSave(); }
-    else if (event.key === 'Delete' || event.key === 'Backspace') {
-      const id = this.state.selectedObjectId();
-      if (id) { this.sceneEngine.removeObject(id); this.state.selectedObjectId.set(null); }
+    if (ctrl && event.shiftKey && event.key === 'z') {
+      event.preventDefault();
+      if (this.state.viewMode() === '2d') { this.floorPlan.redo(); this.history.redo(); }
+      else this.history.redo();
+    } else if (ctrl && event.key === 'z') {
+      event.preventDefault();
+      if (this.state.viewMode() === '2d') { this.floorPlan.undo(); this.history.undo(); }
+      else this.history.undo();
+    } else if (ctrl && event.key === 's') {
+      event.preventDefault(); this.onSave();
     }
   }
 
@@ -108,7 +127,15 @@ export class StudioComponent implements OnInit {
     if (!sceneId) return;
     this.state.isSaving.set(true);
     this.sceneService.save(sceneId, this.sceneEngine.serialize())
-      .subscribe({ error: () => {}, complete: () => this.state.isSaving.set(false) });
+      .subscribe({
+        error: () => { this.state.isSaving.set(false); },
+        complete: () => {
+          this.state.isSaving.set(false);
+          this.state.savedToast.set(true);
+          if (this.toastTimer) clearTimeout(this.toastTimer);
+          this.toastTimer = setTimeout(() => this.state.savedToast.set(false), 2500);
+        },
+      });
   }
 
   onRender(): void { console.log('[DITO] Render requested'); }
