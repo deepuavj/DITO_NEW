@@ -1,11 +1,13 @@
-import { Component, inject, OnInit, signal, input } from '@angular/core';
+import { Component, inject, OnInit, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { StudioStateService } from './services/studio-state.service';
+import { HistoryService } from './services/history.service';
 import { StudioCanvasComponent } from './components/canvas/studio-canvas.component';
-import { AssetsPanelComponent } from './components/assets-panel/assets-panel.component';
+import { FurnitureLibraryComponent } from './components/assets-panel/assets-panel.component';
 import { PropertiesPanelComponent } from './components/properties-panel/properties-panel.component';
 import { StudioToolbarComponent } from './components/toolbar/studio-toolbar.component';
+import { StatusBarComponent } from './components/status-bar/status-bar.component';
 import { SceneEngine } from '../../engines/scene/scene.engine';
 import { MetadataEngine } from '../../engines/metadata/metadata.engine';
 import { SceneService } from '../../core/services/scene.service';
@@ -16,49 +18,47 @@ import type { Asset } from '../../core/models/asset.models';
   imports: [
     CommonModule,
     StudioCanvasComponent,
-    AssetsPanelComponent,
+    FurnitureLibraryComponent,
     PropertiesPanelComponent,
     StudioToolbarComponent,
+    StatusBarComponent,
   ],
-  providers: [StudioStateService],
+  providers: [StudioStateService, HistoryService],
+  styles: [`
+    .studio-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: #080D1A; color: #E2E8F0; outline: none; }
+    .studio-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+    .canvas-area { flex: 1; position: relative; overflow: hidden; min-width: 0; }
+    .panel-toggle { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 48px; background: rgba(14,20,35,0.8); border: 1px solid rgba(255,255,255,0.07); color: #7C8CA0; font-size: 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 200ms; z-index: 10; }
+    .panel-toggle:hover { color: #E2E8F0; background: rgba(37,99,235,0.3); }
+    .left-toggle { left: 4px; border-radius: 0 4px 4px 0; }
+    .right-toggle { right: 4px; border-radius: 4px 0 0 4px; }
+  `],
   template: `
-    <div class="flex flex-col h-screen bg-gray-50 overflow-hidden">
-      <!-- Toolbar -->
-      <dito-studio-toolbar
-        (saveClicked)="onSave()"
-        (renderClicked)="onRender()"
-      />
-
-      <!-- Main layout -->
-      <div class="flex flex-1 min-h-0">
-        <!-- Left: Asset Library -->
-        <div class="w-56 flex-shrink-0">
-          <dito-assets-panel (assetSelected)="onAssetDrop($event)" />
-        </div>
-
-        <!-- Centre: 3D Canvas -->
-        <div
-          class="flex-1 relative"
-          (dragover)="$event.preventDefault()"
-          (drop)="onDrop($event)"
-        >
+    <div class="studio-root" (keydown)="onKeyDown($event)" tabindex="0">
+      @if (state.topPanelVisible()) {
+        <dito-studio-toolbar (saveClicked)="onSave()" (renderClicked)="onRender()" />
+      }
+      <div class="studio-body">
+        @if (state.leftPanelVisible()) {
+          <dito-furniture-library (assetSelected)="onAssetDrop($event)" />
+        }
+        <div class="canvas-area" (dragover)="$event.preventDefault()" (drop)="onDrop($event)">
           <dito-studio-canvas />
+          <button class="panel-toggle left-toggle" (click)="state.togglePanel('left')">{{ state.leftPanelVisible() ? '<' : '>' }}</button>
+          <button class="panel-toggle right-toggle" (click)="state.togglePanel('right')">{{ state.rightPanelVisible() ? '>' : '<' }}</button>
         </div>
-
-        <!-- Right: Properties -->
-        @if (state.isPanelOpen()) {
-          <div class="w-64 flex-shrink-0">
-            <dito-properties-panel />
-          </div>
+        @if (state.rightPanelVisible()) {
+          <dito-properties-panel />
         }
       </div>
+      <dito-status-bar (saveClicked)="onSave()" (renderClicked)="onRender()" />
     </div>
   `,
 })
 export class StudioComponent implements OnInit {
   readonly id = input<string>();
-
   readonly state = inject(StudioStateService);
+  private readonly history = inject(HistoryService);
   private readonly sceneEngine = inject(SceneEngine);
   private readonly metadataEngine = inject(MetadataEngine);
   private readonly sceneService = inject(SceneService);
@@ -69,34 +69,39 @@ export class StudioComponent implements OnInit {
     if (sceneId) this.loadScene(sceneId);
   }
 
+  onKeyDown(event: KeyboardEvent): void {
+    const ctrl = event.ctrlKey || event.metaKey;
+    if (ctrl && event.shiftKey && event.key === 'z') { event.preventDefault(); this.history.redo(); }
+    else if (ctrl && event.key === 'z') { event.preventDefault(); this.history.undo(); }
+    else if (ctrl && event.key === 's') { event.preventDefault(); this.onSave(); }
+    else if (event.key === 'Delete' || event.key === 'Backspace') {
+      const id = this.state.selectedObjectId();
+      if (id) { this.sceneEngine.removeObject(id); this.state.selectedObjectId.set(null); }
+    }
+  }
+
   onAssetDrop(asset: Asset): void {
     this.metadataEngine.register(asset.id, asset.metadata);
     this.sceneEngine.addObject(asset.id, asset.name, [0, 0, 0]);
+    this.history.push(`Added ${asset.name}`);
   }
 
   onDrop(event: DragEvent): void {
     event.preventDefault();
     const raw = event.dataTransfer?.getData('application/dito-asset');
     if (!raw) return;
-    try {
-      const asset: Asset = JSON.parse(raw);
-      this.onAssetDrop(asset);
-    } catch {}
+    try { this.onAssetDrop(JSON.parse(raw)); } catch {}
   }
 
   onSave(): void {
     const sceneId = this.id();
     if (!sceneId) return;
     this.state.isSaving.set(true);
-    this.sceneService
-      .save(sceneId, this.sceneEngine.serialize())
+    this.sceneService.save(sceneId, this.sceneEngine.serialize())
       .subscribe({ error: () => {}, complete: () => this.state.isSaving.set(false) });
   }
 
-  onRender(): void {
-    // Phase 4 feature
-    console.log('[DITO] Render requested — Phase 4');
-  }
+  onRender(): void { console.log('[DITO] Render requested'); }
 
   private loadScene(id: string): void {
     this.sceneService.getById(id).subscribe({
