@@ -560,12 +560,22 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     } else {
       this.observeCanvasSize();
     }
-    // Watch for switch from 2D to 3D — DOM must render the canvas first
+    // Watch for switch from 2D→3D; retry until canvas element is in DOM
     effect(() => {
       if (this.state.viewMode() === '3d' && !this.threeInitialized) {
-        requestAnimationFrame(() => this.init3D());
+        this.tryInit3D();
       }
     }, { injector: this.injector });
+  }
+
+  private tryInit3D(): void {
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) {
+      // Canvas not in DOM yet — Angular hasn't flushed CD; retry next frame
+      requestAnimationFrame(() => this.tryInit3D());
+      return;
+    }
+    this.init3D();
   }
 
   private observeCanvasSize(): void {
@@ -582,22 +592,23 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   private init3D(): void {
     if (this.threeInitialized) return;
-    this.threeInitialized = true;
     const canvas = this.canvasRef?.nativeElement;
     if (!canvas) return;
+    this.threeInitialized = true;  // set AFTER confirming canvas exists
     this.renderer.init(canvas);
-    // Sync furniture objects (no room — room comes from floor plan)
     effect(() => { this.sceneEngine.objects(); this.renderer.syncScene(); }, { injector: this.injector });
     effect(() => { this.renderer.highlightObject(this.sceneEngine.selectedId()); }, { injector: this.injector });
-    // Sync 2D floor plan (walls + doors + windows) into 3D
+    // Sync committed walls + live preview wall while drawing
     effect(() => {
       this.renderer.syncFloorPlan(
         this.floorPlan.walls(),
         this.floorPlan.doors(),
         this.floorPlan.windows(),
+        this.drawStart() && this.drawCurrent()
+          ? { id: '__preview__', start: this.drawStart()!, end: this.drawCurrent()!, meta: { thickness: 200, height: 2800, material: 'concrete', color: '#60A5FA' } }
+          : null,
       );
     }, { injector: this.injector });
-    // Clear wall highlight when selection moves away from walls
     effect(() => {
       const selType = this.floorPlan.selectedType();
       if (selType !== 'wall') this.renderer.highlightWall(null);

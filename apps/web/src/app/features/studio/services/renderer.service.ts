@@ -57,14 +57,15 @@ export class RendererService implements OnDestroy {
     });
   }
 
-  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = []): void {
-    const wallIds = new Set(walls.map(w => w.id));
+  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = [], previewWall: FPWall | null = null): void {
+    const allWalls = previewWall ? [...walls, previewWall] : walls;
+    const wallIds = new Set(allWalls.map(w => w.id));
     const doorIds = new Set(doors.map(d => d.id));
     const winIds  = new Set(windows.map(w => w.id));
 
     // Remove stale wall meshes
     this.wallMeshMap.forEach((mesh, id) => {
-      if (!wallIds.has(id)) { this.threeScene.remove(mesh); this.wallMeshMap.delete(id); }
+      if (id !== '__floor__' && !wallIds.has(id)) { this.threeScene.remove(mesh); this.wallMeshMap.delete(id); }
     });
     // Remove stale floor meshes (door/window markers stored here)
     this.floorMeshMap.forEach((mesh, id) => {
@@ -95,23 +96,29 @@ export class RendererService implements OnDestroy {
       floor.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
     }
 
-    for (const wall of walls) {
+    for (const wall of allWalls) {
       const dx = wall.end.x - wall.start.x;
       const dy = wall.end.y - wall.start.y;
-      const length = Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_METER;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 1) continue; // skip zero-length walls
+      const length = len / PIXELS_PER_METER;
       const height = wall.meta.height / 1000;
       const thickness = wall.meta.thickness / 1000;
       const cx = ((wall.start.x + wall.end.x) / 2) / PIXELS_PER_METER;
       const cz = ((wall.start.y + wall.end.y) / 2) / PIXELS_PER_METER;
       const rotY = -Math.atan2(dy, dx);
+      const isPreview = wall.id === '__preview__';
 
       let mesh = this.wallMeshMap.get(wall.id);
       if (!mesh) {
         const geo = new THREE.BoxGeometry(1, 1, 1);
-        const mat = new THREE.MeshStandardMaterial({ color: wall.meta.color, roughness: 0.9 });
+        const mat = new THREE.MeshStandardMaterial({
+          color: wall.meta.color, roughness: 0.9,
+          transparent: isPreview, opacity: isPreview ? 0.55 : 1,
+        });
         mesh = new THREE.Mesh(geo, mat);
-        mesh.userData['wallId'] = wall.id;
-        mesh.castShadow = true; mesh.receiveShadow = true;
+        if (!isPreview) mesh.userData['wallId'] = wall.id;
+        mesh.castShadow = !isPreview; mesh.receiveShadow = true;
         this.threeScene.add(mesh);
         this.wallMeshMap.set(wall.id, mesh);
       }
