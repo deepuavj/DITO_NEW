@@ -690,7 +690,16 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
   @HostListener('window:keydown', ['$event'])
   onKey(e: KeyboardEvent): void {
-    if (this.state.viewMode() !== '2d') return;
+    if (this.state.viewMode() === '3d') {
+      if (e.key === 'Escape') { this.sceneEngine.select(null); this.state.setSelectionState('none'); }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && this.sceneEngine.selectedId()) {
+        const id = this.sceneEngine.selectedId()!;
+        this.sceneEngine.removeObject(id);
+        this.state.setSelectionState('none');
+        this.history.push('Delete object');
+      }
+      return;
+    }
     if (e.key === 'Escape') { this.drawStart.set(null); this.drawCurrent.set(null); this.selectedId = null; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) this.deleteSelected();
     if (e.key === 'f' || e.key === 'F') this.fitView();

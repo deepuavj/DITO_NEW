@@ -144,33 +144,48 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
         }
 
         @if (activeTab() === 'Transform') {
-          <div class="section-label">POSITION</div>
-          <div class="xyz-row" style="margin-bottom:10px">
-            @for (axis of ['X','Y','Z']; track axis) {
-              <div class="xyz-field">
-                <span class="xyz-label">{{ axis }}</span>
-                <input type="number" class="xyz-input" value="0" step="0.1" />
-              </div>
-            }
-          </div>
-          <div class="section-label">ROTATION</div>
-          <div class="xyz-row" style="margin-bottom:10px">
-            @for (axis of ['X','Y','Z']; track axis) {
-              <div class="xyz-field">
-                <span class="xyz-label">{{ axis }}°</span>
-                <input type="number" class="xyz-input" value="0" step="1" />
-              </div>
-            }
-          </div>
-          <div class="section-label">SCALE</div>
-          <div class="xyz-row">
-            @for (axis of ['X','Y','Z']; track axis) {
-              <div class="xyz-field">
-                <span class="xyz-label">{{ axis }}</span>
-                <input type="number" class="xyz-input" value="1" step="0.05" />
-              </div>
-            }
-          </div>
+          @if (selectedObj(); as obj) {
+            <div class="section-label">POSITION (m)</div>
+            <div class="xyz-row" style="margin-bottom:10px">
+              @for (axis of xyzAxes; track axis.i) {
+                <div class="xyz-field">
+                  <span class="xyz-label">{{ axis.label }}</span>
+                  <input type="number" class="xyz-input"
+                    [value]="obj.position[axis.i] | number:'1.2-2'"
+                    (change)="setPosition(axis.i, +$any($event.target).value)"
+                    step="0.1" />
+                </div>
+              }
+            </div>
+            <div class="section-label">ROTATION (°)</div>
+            <div class="xyz-row" style="margin-bottom:10px">
+              @for (axis of xyzAxes; track axis.i) {
+                <div class="xyz-field">
+                  <span class="xyz-label">{{ axis.label }}</span>
+                  <input type="number" class="xyz-input"
+                    [value]="obj.rotation[axis.i] | number:'1.0-0'"
+                    (change)="setRotation(axis.i, +$any($event.target).value)"
+                    step="15" />
+                </div>
+              }
+            </div>
+            <div class="section-label">SCALE</div>
+            <div class="xyz-row" style="margin-bottom:14px">
+              @for (axis of xyzAxes; track axis.i) {
+                <div class="xyz-field">
+                  <span class="xyz-label">{{ axis.label }}</span>
+                  <input type="number" class="xyz-input"
+                    [value]="obj.scale[axis.i] | number:'1.2-2'"
+                    (change)="setScale(axis.i, +$any($event.target).value)"
+                    step="0.1" min="0.01" />
+                </div>
+              }
+            </div>
+            <button class="sel-btn" style="width:100%;color:#EF4444;border-color:rgba(239,68,68,0.3)"
+              (click)="deleteSelected()">Delete object</button>
+          } @else {
+            <div class="empty"><div>Select an object in the 3D view</div></div>
+          }
         }
 
         @if (activeTab() === 'Wall') {
@@ -324,6 +339,43 @@ export class PropertiesPanelComponent {
   ];
   readonly furnitureColors = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#D97706', '#16A34A', '#0891B2', '#E2E8F0'];
   readonly materials = ['Fabric', 'Leather', 'Velvet', 'Wood', 'Metal', 'Rattan'];
+  readonly xyzAxes = [{ i: 0, label: 'X' }, { i: 1, label: 'Y' }, { i: 2, label: 'Z' }] as const;
+
+  setPosition(axis: number, value: number): void {
+    const obj = this.selectedObj();
+    if (!obj) return;
+    const position = [...obj.position] as [number, number, number];
+    position[axis] = value;
+    this.sceneEngine.updateObject(obj.id, { position });
+    this.history.push('Move object');
+  }
+
+  setRotation(axis: number, value: number): void {
+    const obj = this.selectedObj();
+    if (!obj) return;
+    const rotation = [...obj.rotation] as [number, number, number];
+    rotation[axis] = value;
+    this.sceneEngine.updateObject(obj.id, { rotation });
+    this.history.push('Rotate object');
+  }
+
+  setScale(axis: number, value: number): void {
+    const obj = this.selectedObj();
+    if (!obj) return;
+    if (value <= 0) return;
+    const scale = [...obj.scale] as [number, number, number];
+    scale[axis] = value;
+    this.sceneEngine.updateObject(obj.id, { scale });
+    this.history.push('Scale object');
+  }
+
+  deleteSelected(): void {
+    const obj = this.selectedObj();
+    if (!obj) return;
+    this.sceneEngine.removeObject(obj.id);
+    this.state.setSelectionState('none');
+    this.history.push('Delete object');
+  }
 
   setWallColor(c: string): void {
     const w = this.floorPlan.selectedWall();
