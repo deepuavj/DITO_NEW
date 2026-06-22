@@ -47,6 +47,77 @@ export class RendererService implements OnDestroy {
 
   private floorMeshMap = new Map<string, THREE.Mesh>();
 
+  private dragState: {
+    objectId: string;
+    mode: 'move' | 'rotate' | 'scale';
+    plane: THREE.Plane;
+    startMouseX: number;
+    startMouseY: number;
+    startRotY: number;
+    startScale: [number, number, number];
+  } | null = null;
+
+  get isDragging(): boolean { return this.dragState !== null; }
+
+  beginDrag(event: PointerEvent, canvas: HTMLCanvasElement, mode: 'move' | 'rotate' | 'scale'): boolean {
+    const hit = this.pick(event as unknown as MouseEvent, canvas);
+    if (!hit || hit.type !== 'object') return false;
+    const obj = this.sceneEngine.objects().find(o => o.id === hit.id);
+    if (!obj) return false;
+    this.controls.enabled = false;
+    const rect = canvas.getBoundingClientRect();
+    // Horizontal plane at object floor level for move raycasting
+    const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -obj.position[1]);
+    this.dragState = {
+      objectId: hit.id,
+      mode,
+      plane: dragPlane,
+      startMouseX: event.clientX - rect.left,
+      startMouseY: event.clientY - rect.top,
+      startRotY: obj.rotation[1],
+      startScale: [...obj.scale] as [number, number, number],
+    };
+    return true;
+  }
+
+  updateDrag(event: PointerEvent, canvas: HTMLCanvasElement): void {
+    if (!this.dragState) return;
+    const { objectId, mode, plane, startMouseX, startMouseY, startRotY, startScale } = this.dragState;
+    const obj = this.sceneEngine.objects().find(o => o.id === objectId);
+    if (!obj) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = event.clientX - rect.left;
+    const my = event.clientY - rect.top;
+
+    if (mode === 'move') {
+      const nx = (mx / rect.width) * 2 - 1;
+      const ny = -(my / rect.height) * 2 + 1;
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
+      const pt = new THREE.Vector3();
+      if (ray.ray.intersectPlane(plane, pt)) {
+        this.sceneEngine.updateObject(objectId, { position: [pt.x, obj.position[1], pt.z] });
+      }
+    } else if (mode === 'rotate') {
+      const dx = mx - startMouseX;
+      const rotation = [...obj.rotation] as [number, number, number];
+      rotation[1] = startRotY + dx * 0.5; // 0.5 deg per pixel
+      this.sceneEngine.updateObject(objectId, { rotation });
+    } else if (mode === 'scale') {
+      const dy = my - startMouseY;
+      const factor = Math.max(0.1, 1 - dy * 0.008);
+      this.sceneEngine.updateObject(objectId, {
+        scale: [startScale[0] * factor, startScale[1] * factor, startScale[2] * factor],
+      });
+    }
+  }
+
+  endDrag(): void {
+    if (!this.dragState) return;
+    this.controls.enabled = true;
+    this.dragState = null;
+  }
+
   syncScene(): void {
     if (!this.threeScene) return;
     const objects = this.sceneEngine?.objects() ?? [];

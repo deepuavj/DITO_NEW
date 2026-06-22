@@ -128,7 +128,11 @@ function rulerInterval(zoom: number): number {
     <!-- ── 3D WebGL canvas (always in DOM so OrbitControls stays bound) ── -->
     <div class="panel-3d" [class.visible]="state.viewMode() === '3d'" [class.hidden]="state.viewMode() !== '3d'"
       (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)">
-      <canvas #canvas (click)="onCanvasClick($event)" tabindex="0"
+      <canvas #canvas tabindex="0"
+        (click)="onCanvasClick($event)"
+        (pointerdown)="on3dPointerDown($event)"
+        (pointermove)="on3dPointerMove($event)"
+        (pointerup)="on3dPointerUp($event)"
         (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)"></canvas>
     </div>
 
@@ -632,14 +636,18 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   onCanvasClick(e: MouseEvent): void {
-    if (this.state.mode() !== 'select') return;
+    // Ignore click if it ended a drag (pointer moved significantly)
+    if (this.renderer.isDragging) return;
+    const mode = this.state.mode();
     const c = this.canvasRef?.nativeElement;
     if (!c) return;
     const hit = this.renderer.pick(e, c);
     if (!hit) {
-      this.sceneEngine.select(null);
-      this.floorPlan.clearSelection();
-      this.state.setSelectionState('none');
+      if (mode === 'select') {
+        this.sceneEngine.select(null);
+        this.floorPlan.clearSelection();
+        this.state.setSelectionState('none');
+      }
       return;
     }
     if (hit.type === 'object') {
@@ -652,6 +660,35 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       this.floorPlan.selectedType.set('wall');
       this.state.setSelectionState('wall');
       this.renderer.highlightWall(hit.id);
+    }
+  }
+
+  on3dPointerDown(e: PointerEvent): void {
+    if (this.state.viewMode() !== '3d') return;
+    const mode = this.state.mode();
+    if (mode === 'select') return; // select handled by click
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) return;
+    const grabbed = this.renderer.beginDrag(e, canvas, mode as 'move' | 'rotate' | 'scale');
+    if (grabbed) {
+      canvas.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    }
+  }
+
+  on3dPointerMove(e: PointerEvent): void {
+    if (this.state.viewMode() !== '3d' || !this.renderer.isDragging) return;
+    const canvas = this.canvasRef?.nativeElement;
+    if (!canvas) return;
+    this.renderer.updateDrag(e, canvas);
+  }
+
+  on3dPointerUp(e: PointerEvent): void {
+    if (this.state.viewMode() !== '3d') return;
+    if (this.renderer.isDragging) {
+      this.renderer.endDrag();
+      this.history.push('Transform object');
+      this.canvasRef?.nativeElement?.releasePointerCapture(e.pointerId);
     }
   }
 
