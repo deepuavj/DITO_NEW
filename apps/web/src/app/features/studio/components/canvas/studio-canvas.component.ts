@@ -128,7 +128,8 @@ function rulerInterval(zoom: number): number {
     <!-- ── 3D WebGL canvas (always in DOM so OrbitControls stays bound) ── -->
     <div class="panel-3d" [class.visible]="state.viewMode() === '3d'" [class.hidden]="state.viewMode() !== '3d'"
       (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)">
-      <canvas #canvas (click)="onCanvasClick($event)" tabindex="0"></canvas>
+      <canvas #canvas (click)="onCanvasClick($event)" tabindex="0"
+        (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)"></canvas>
     </div>
 
     <!-- ── 2D Floor Plan ── -->
@@ -615,6 +616,12 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }, { injector: this.injector });
     // Wire toolbar toggles to the 3D renderer
     effect(() => { this.renderer.setGridVisible(this.state.showGrid()); }, { injector: this.injector });
+    // Reactively sync furniture objects whenever SceneEngine changes
+    // (belt-and-suspenders alongside the animation loop's syncScene call)
+    effect(() => {
+      this.sceneEngine.objects(); // track the signal
+      this.renderer.syncScene();
+    }, { injector: this.injector });
     // Override the 2D resize observer with the 3D one
     this.resizeObserver?.disconnect();
     this.resizeObserver = new ResizeObserver(entries => {
