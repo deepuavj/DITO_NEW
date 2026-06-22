@@ -126,8 +126,9 @@ function rulerInterval(zoom: number): number {
   `],
   template: `
     <!-- ── 3D WebGL canvas (always in DOM so OrbitControls stays bound) ── -->
-    <div class="panel-3d" [class.visible]="state.viewMode() === '3d'" [class.hidden]="state.viewMode() !== '3d'">
-      <canvas #canvas (click)="onCanvasClick($event)" (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)" tabindex="0"></canvas>
+    <div class="panel-3d" [class.visible]="state.viewMode() === '3d'" [class.hidden]="state.viewMode() !== '3d'"
+      (dragover)="$event.preventDefault()" (drop)="onDrop3d($event)">
+      <canvas #canvas (click)="onCanvasClick($event)" tabindex="0"></canvas>
     </div>
 
     <!-- ── 2D Floor Plan ── -->
@@ -654,21 +655,23 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     e.stopPropagation();
     const raw = e.dataTransfer?.getData('application/dito-asset');
     if (!raw) return;
-    try {
-      const asset = JSON.parse(raw);
-      this.metadataEngine.register(asset.id, asset.metadata);
-      // Place at room center, not origin — walls live at 1–6m range
-      const walls = this.floorPlan.walls();
-      let cx = 3.5, cz = 3;
-      if (walls.length > 0) {
-        const allX = walls.flatMap(w => [w.start.x, w.end.x]);
-        const allZ = walls.flatMap(w => [w.start.y, w.end.y]);
-        cx = (Math.min(...allX) + Math.max(...allX)) / 2 / 100;
-        cz = (Math.min(...allZ) + Math.max(...allZ)) / 2 / 100;
-      }
-      this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
-      this.history.push(`Added ${asset.name}`);
-    } catch {}
+    let asset: any;
+    try { asset = JSON.parse(raw); } catch (err) {
+      console.error('[DITO] Failed to parse drag asset:', err);
+      return;
+    }
+    this.metadataEngine.register(asset.id, asset.metadata ?? {});
+    // Place at room center derived from wall bounding box, or default room center
+    const walls = this.floorPlan.walls();
+    let cx = 3.5, cz = 3;
+    if (walls.length > 0) {
+      const allX = walls.flatMap((w: any) => [w.start.x, w.end.x]);
+      const allZ = walls.flatMap((w: any) => [w.start.y, w.end.y]);
+      cx = (Math.min(...allX) + Math.max(...allX)) / 2 / PIXELS_PER_METER;
+      cz = (Math.min(...allZ) + Math.max(...allZ)) / 2 / PIXELS_PER_METER;
+    }
+    this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
+    this.history.push(`Added ${asset.name}`);
   }
 
   ngOnDestroy(): void {
