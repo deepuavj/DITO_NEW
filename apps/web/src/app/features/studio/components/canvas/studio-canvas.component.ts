@@ -243,14 +243,14 @@ function rulerInterval(zoom: number): number {
                 <!-- ── Walls (thick polygons) ── -->
                 @for (w of walls; track w.id) {
                   <g class="wall-group" [class.selected]="selectedId === w.id">
-                    <!-- wall fill -->
+                    <!-- wall fill — draggable body when selected + select tool -->
                     <path [attr.d]="wallPoly(w)"
                       [attr.fill]="selectedId === w.id ? 'rgba(59,130,246,0.15)' : w.meta.color"
                       [attr.stroke]="selectedId === w.id ? '#3B82F6' : 'var(--fg,#374151)'"
                       [attr.stroke-width]="1.5 / zoom()"
                       stroke-linejoin="round"
-                      style="cursor:pointer"
-                      (mousedown)="selectElem(w.id, 'wall', $event)"/>
+                      [style.cursor]="selectedId === w.id && state.drawTool() === 'select' ? 'move' : 'pointer'"
+                      (mousedown)="onWallBodyDown($event, w.id)"/>
                     <!-- wall centerline (thin, dashed, only when selected) -->
                     @if (selectedId === w.id) {
                       <line [attr.x1]="w.start.x" [attr.y1]="w.start.y"
@@ -267,11 +267,19 @@ function rulerInterval(zoom: number): number {
                         fill="var(--fg,#374151)" text-anchor="middle" dominant-baseline="central"
                         pointer-events="none">{{ wallLabel(w) }}</text>
                     }
-                    <!-- endpoint nodes -->
-                    <circle [attr.cx]="w.start.x" [attr.cy]="w.start.y" [attr.r]="3.5 / zoom()"
-                      fill="white" stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()" style="cursor:crosshair"/>
-                    <circle [attr.cx]="w.end.x"   [attr.cy]="w.end.y"   [attr.r]="3.5 / zoom()"
-                      fill="white" stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()" style="cursor:crosshair"/>
+                    <!-- endpoint nodes — larger + blue when selected for easy drag -->
+                    <circle [attr.cx]="w.start.x" [attr.cy]="w.start.y"
+                      [attr.r]="(selectedId === w.id ? 6 : 3.5) / zoom()"
+                      [attr.fill]="selectedId === w.id ? '#3B82F6' : 'white'"
+                      stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()"
+                      style="cursor:crosshair"
+                      (mousedown)="onEndpointDown($event, w.id, 'start')"/>
+                    <circle [attr.cx]="w.end.x" [attr.cy]="w.end.y"
+                      [attr.r]="(selectedId === w.id ? 6 : 3.5) / zoom()"
+                      [attr.fill]="selectedId === w.id ? '#3B82F6' : 'white'"
+                      stroke="var(--fg,#374151)" [attr.stroke-width]="1.5 / zoom()"
+                      style="cursor:crosshair"
+                      (mousedown)="onEndpointDown($event, w.id, 'end')"/>
                   </g>
                 }
 
@@ -481,6 +489,9 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // Mouse state (non-signal, no reactivity needed)
   private isPanning = false;
   private lastMouse = { x: 0, y: 0 };
+  // Wall editing state
+  private wallEndpointEdit: { wallId: string; endpoint: 'start' | 'end' } | null = null;
+  private wallBodyDrag: { wallId: string; lastPt: Pt } | null = null;
   banner: string | null = null;
   private bannerTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -795,6 +806,40 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     return best && best.d < 200 / this.zoom() ? best : null;
   }
 
+  // ─── Wall endpoint / body drag ───────────────────────────────────────────────
+  onEndpointDown(e: MouseEvent, wallId: string, endpoint: 'start' | 'end'): void {
+    e.stopPropagation();
+    e.preventDefault();
+    // Auto-select wall
+    this.selectedId = wallId;
+    this.selectedType = 'wall';
+    this.floorPlan.selectedId.set(wallId);
+    this.floorPlan.selectedType.set('wall');
+    this.state.setSelectionState('wall');
+    this.wallEndpointEdit = { wallId, endpoint };
+    this.wallBodyDrag = null;
+    this.floorPlan.snapshot();
+  }
+
+  onWallBodyDown(e: MouseEvent, wallId: string): void {
+    e.stopPropagation();
+    e.preventDefault();
+    const tool = this.state.drawTool();
+    // Only drag body when in select mode and wall is already selected
+    if (tool === 'select') {
+      this.selectedId = wallId;
+      this.selectedType = 'wall';
+      this.floorPlan.selectedId.set(wallId);
+      this.floorPlan.selectedType.set('wall');
+      this.state.setSelectionState('wall');
+      const screen = this.getSVGPoint(e);
+      const world = this.screenToWorld(screen.x, screen.y);
+      this.wallBodyDrag = { wallId, lastPt: world };
+      this.wallEndpointEdit = null;
+      this.floorPlan.snapshot();
+    }
+  }
+
   // ─── Mouse events ────────────────────────────────────────────────────────────
   onDown(e: MouseEvent): void {
     e.preventDefault();
@@ -889,6 +934,33 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.state.cursorX.set(+(raw.x / PIXELS_PER_METER).toFixed(2));
     this.state.cursorY.set(+(raw.y / PIXELS_PER_METER).toFixed(2));
 
+    // Wall endpoint drag
+    if (this.wallEndpointEdit) {
+      const { wallId, endpoint } = this.wallEndpointEdit;
+      this.floorPlan.walls.update(ws =>
+        ws.map(w => w.id === wallId
+          ? { ...w, [endpoint]: snapped }
+          : w
+        )
+      );
+      return;
+    }
+
+    // Wall body drag (translate whole wall)
+    if (this.wallBodyDrag) {
+      const { wallId, lastPt } = this.wallBodyDrag;
+      const dx = raw.x - lastPt.x;
+      const dy = raw.y - lastPt.y;
+      this.floorPlan.walls.update(ws =>
+        ws.map(w => w.id === wallId
+          ? { ...w, start: { x: w.start.x + dx, y: w.start.y + dy }, end: { x: w.end.x + dx, y: w.end.y + dy } }
+          : w
+        )
+      );
+      this.wallBodyDrag = { wallId, lastPt: raw };
+      return;
+    }
+
     if (this.drawStart()) {
       this.drawCurrent.set(snapped);
     }
@@ -896,11 +968,21 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   onUp(e: MouseEvent): void {
     if (e.button === 1 || this.state.drawTool() === 'pan') this.isPanning = false;
+    if (this.wallEndpointEdit) {
+      this.history.push('Resize wall');
+      this.wallEndpointEdit = null;
+    }
+    if (this.wallBodyDrag) {
+      this.history.push('Move wall');
+      this.wallBodyDrag = null;
+    }
   }
 
   onLeave(): void {
     this.isPanning = false;
     this.snapPt.set(null);
+    if (this.wallEndpointEdit) { this.history.push('Resize wall'); this.wallEndpointEdit = null; }
+    if (this.wallBodyDrag) { this.history.push('Move wall'); this.wallBodyDrag = null; }
   }
 
   onWheel(e: WheelEvent): void {
