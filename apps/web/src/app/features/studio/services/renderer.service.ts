@@ -8,7 +8,7 @@ import { SceneEngine } from '../../../engines/scene/scene.engine';
 import { MaterialEngine } from '../../../engines/material/material.engine';
 import { MetadataEngine } from '../../../engines/metadata/metadata.engine';
 import type { SceneObject } from '../../../core/models/scene.models';
-import type { FPWall, FPDoor, FPWindow } from './floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPArc } from './floor-plan.service';
 
 const PIXELS_PER_METER = 100;
 
@@ -49,6 +49,7 @@ export class RendererService implements OnDestroy {
   }
 
   private floorMeshMap = new Map<string, THREE.Mesh>();
+  private arcMeshMap = new Map<string, THREE.Mesh[]>(); // arcId → segment meshes
 
   private dragState: {
     objectId: string;
@@ -132,11 +133,17 @@ export class RendererService implements OnDestroy {
     });
   }
 
-  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = [], previewWall: FPWall | null = null): void {
+  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = [], previewWall: FPWall | null = null, arcs: FPArc[] = []): void {
     const allWalls = previewWall ? [...walls, previewWall] : walls;
     const wallIds = new Set(allWalls.map(w => w.id));
     const doorIds = new Set(doors.map(d => d.id));
     const winIds  = new Set(windows.map(w => w.id));
+    const arcIds  = new Set(arcs.map(a => a.id));
+
+    // Remove stale arc meshes
+    this.arcMeshMap.forEach((segs, id) => {
+      if (!arcIds.has(id)) { segs.forEach(m => this.threeScene.remove(m)); this.arcMeshMap.delete(id); }
+    });
 
     // Remove stale wall meshes
     this.wallMeshMap.forEach((mesh, id) => {
@@ -241,6 +248,49 @@ export class RendererService implements OnDestroy {
       mesh.scale.set(w, h, WALL_THICK);
       mesh.position.set(px, sillH + h / 2, pz);
       mesh.rotation.set(0, rotY, 0);
+    }
+
+    // Curved walls — tessellate each quadratic bezier into segments
+    const ARC_SEGS = 16;
+    for (const arc of arcs) {
+      const height = arc.meta.height / 1000;
+      const thickness = arc.meta.thickness / 1000;
+      const existing = this.arcMeshMap.get(arc.id);
+
+      // Sample bezier: P(t) = (1-t)²·P0 + 2t(1-t)·P1 + t²·P2
+      const pts: [number, number][] = [];
+      for (let i = 0; i <= ARC_SEGS; i++) {
+        const t = i / ARC_SEGS;
+        const u = 1 - t;
+        const x = u * u * arc.start.x + 2 * u * t * arc.ctrl.x + t * t * arc.end.x;
+        const y = u * u * arc.start.y + 2 * u * t * arc.ctrl.y + t * t * arc.end.y;
+        pts.push([x / PIXELS_PER_METER, y / PIXELS_PER_METER]);
+      }
+
+      const segs: THREE.Mesh[] = existing ?? [];
+      if (!existing) {
+        for (let i = 0; i < ARC_SEGS; i++) {
+          const mat = new THREE.MeshStandardMaterial({ color: arc.meta.color, roughness: 0.9 });
+          const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          this.threeScene.add(mesh);
+          segs.push(mesh);
+        }
+        this.arcMeshMap.set(arc.id, segs);
+      }
+
+      for (let i = 0; i < ARC_SEGS; i++) {
+        const [x0, z0] = pts[i];
+        const [x1, z1] = pts[i + 1];
+        const dx = x1 - x0, dz = z1 - z0;
+        const segLen = Math.sqrt(dx * dx + dz * dz) || 0.001;
+        const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+        const rotY = -Math.atan2(dz, dx);
+        segs[i].scale.set(segLen, height, thickness);
+        segs[i].position.set(cx, height / 2, cz);
+        segs[i].rotation.set(0, rotY, 0);
+        (segs[i].material as THREE.MeshStandardMaterial).color.set(arc.meta.color);
+      }
     }
   }
 

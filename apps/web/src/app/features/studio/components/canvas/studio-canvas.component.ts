@@ -676,6 +676,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
         this.drawStart() && this.drawCurrent()
           ? { id: '__preview__', start: this.drawStart()!, end: this.drawCurrent()!, meta: { thickness: 200, height: 2800, material: 'concrete', color: '#60A5FA' } }
           : null,
+        this.floorPlan.arcs(),
       );
     }, { injector: this.injector });
     effect(() => {
