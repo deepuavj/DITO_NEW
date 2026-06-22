@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { StudioStateService } from '../../services/studio-state.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
+import { SceneEngine } from '../../../../engines/scene/scene.engine';
+import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import type { FPWall } from '../../services/floor-plan.service';
 import type { Asset } from '../../../../core/models/asset.models';
 import type { DrawTool } from '../../services/studio-state.service';
@@ -17,6 +19,7 @@ interface FurnitureCategory {
   open: ReturnType<typeof signal<boolean>>; items: FurnitureItem[];
 }
 interface Draw2DItem { tool: DrawTool; label: string; desc: string; svgPath: string; }
+interface GlbItem { id: string; name: string; blobUrl: string }
 
 /* SVG icon paths */
 const SOFA_IC  = `<path d="M3 15a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4H3z"/><path d="M5 13V9a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4"/><path d="M3 19h18"/>`;
@@ -115,6 +118,24 @@ function svg(paths: string, cls = ''): string {
     .import-btn:hover { border-color: rgba(59,130,246,0.4); color: #93B4FF; }
     .import-btn svg { width: 14px; height: 14px; }
     .dxf-msg { font-size: 10px; color: #F59E0B; padding: 4px 10px; }
+    /* glb imports */
+    .glb-section { border-top: 1px solid var(--border); padding: 8px 10px 4px; }
+    .glb-label { font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 6px; }
+    .glb-import-btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px; background: var(--input-bg); border: 1px dashed rgba(59,130,246,0.4); border-radius: 7px; color: #93B4FF; font-size: 11px; cursor: pointer; transition: all 150ms; font-weight: 500; }
+    .glb-import-btn:hover { background: rgba(59,130,246,0.08); border-color: rgba(59,130,246,0.7); color: #60A5FA; }
+    .glb-import-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .glb-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 7px; margin-bottom: 4px; cursor: grab; transition: all 130ms; }
+    .glb-item:hover { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.06); }
+    .glb-item:active { cursor: grabbing; }
+    .glb-thumb { width: 28px; height: 28px; background: rgba(59,130,246,0.15); border-radius: 5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #93B4FF; }
+    .glb-thumb svg { width: 16px; height: 16px; }
+    .glb-name { flex: 1; font-size: 11px; font-weight: 500; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .glb-remove { width: 18px; height: 18px; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 3px; flex-shrink: 0; }
+    .glb-remove:hover { color: #EF4444; background: rgba(239,68,68,0.1); }
+    .glb-remove svg { width: 12px; height: 12px; }
+    .glb-msg { font-size: 10px; padding: 4px 0; }
+    .glb-msg.ok { color: #22C55E; }
+    .glb-msg.err { color: #EF4444; }
   `],
   template: `
     <div class="panel">
@@ -149,9 +170,27 @@ function svg(paths: string, cls = ''): string {
             </div>
           }
         </div>
-        <button class="import-btn">
-          <span [innerHTML]="svgIcon(IMPORT_IC)"></span> Import custom model (.glb)
-        </button>
+        <!-- GLB import section -->
+        <div class="glb-section">
+          <div class="glb-label">CUSTOM MODELS</div>
+          @for (item of glbItems; track item.id) {
+            <div class="glb-item" draggable="true" (dragstart)="onGlbDragStart($event, item)">
+              <span class="glb-thumb">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m21 16-9 5-9-5V8l9-5 9 5z"/><path d="m3.3 7 8.7 5 8.7-5"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+              </span>
+              <span class="glb-name" [title]="item.name">{{ item.name }}</span>
+              <button class="glb-remove" title="Remove" (click)="removeGlbItem(item.id)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          }
+          <button class="glb-import-btn" (click)="glbInput.click()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import .glb / .gltf file
+          </button>
+          <input #glbInput type="file" accept=".glb,.gltf" style="display:none" (change)="onGlbUpload($event)"/>
+          @if (glbMsg) { <div class="glb-msg" [class.ok]="glbMsgOk" [class.err]="!glbMsgOk">{{ glbMsg }}</div> }
+        </div>
       } @else {
         <div class="panel-header">DRAWING ELEMENTS</div>
         <div class="scroll">
@@ -196,10 +235,16 @@ export class FurnitureLibraryComponent {
   readonly state = inject(StudioStateService);
   private readonly san = inject(DomSanitizer);
   readonly floorPlan = inject(FloorPlanService);
+  private readonly sceneEngine = inject(SceneEngine);
+  private readonly metadataEngine = inject(MetadataEngine);
   readonly assetSelected = output<Asset>();
   searchQuery = '';
   dxfBanner: string | null = null;
   private dxfBannerTimer: ReturnType<typeof setTimeout> | null = null;
+  glbItems: GlbItem[] = [];
+  glbMsg: string | null = null;
+  glbMsgOk = true;
+  private glbMsgTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly SEARCH_IC = SEARCH_IC;
   readonly CHEVRON_R = CHEVRON_R;
@@ -268,6 +313,45 @@ export class FurnitureLibraryComponent {
       glbUrl: '', metadata: {}, tags: [],
       isPublic: false, createdAt: '', updatedAt: '',
     } as unknown as Asset;
+  }
+
+  onGlbUpload(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    input.value = '';
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'glb' && ext !== 'gltf') {
+      this.showGlbMsg('Only .glb and .gltf files are supported', false);
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    const name = file.name.replace(/\.(glb|gltf)$/i, '');
+    const id = uid();
+    // Register with MetadataEngine so renderer can find the URL
+    this.metadataEngine.register(id, {} as any);
+    this.metadataEngine.setGlbUrl(id, blobUrl);
+    this.glbItems = [...this.glbItems, { id, name, blobUrl }];
+    this.showGlbMsg(`"${name}" imported — drag to 3D scene`, true);
+  }
+
+  onGlbDragStart(event: DragEvent, item: GlbItem): void {
+    event.dataTransfer?.setData('application/dito-asset', JSON.stringify({
+      id: item.id, name: item.name, metadata: {},
+    }));
+  }
+
+  removeGlbItem(id: string): void {
+    const item = this.glbItems.find(i => i.id === id);
+    if (item) URL.revokeObjectURL(item.blobUrl);
+    this.glbItems = this.glbItems.filter(i => i.id !== id);
+  }
+
+  private showGlbMsg(msg: string, ok: boolean): void {
+    this.glbMsg = msg;
+    this.glbMsgOk = ok;
+    if (this.glbMsgTimer) clearTimeout(this.glbMsgTimer);
+    this.glbMsgTimer = setTimeout(() => { this.glbMsg = null; }, 5000);
   }
 
   onDxfUpload(e: Event): void {

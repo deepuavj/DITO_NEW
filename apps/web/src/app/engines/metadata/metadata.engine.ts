@@ -37,6 +37,15 @@ export class MetadataEngine {
     return this.registry.get(assetId)?.dimensions;
   }
 
+  setGlbUrl(assetId: string, url: string): void {
+    const existing = this.registry.get(assetId) ?? {} as AssetMetadata;
+    this.registry.set(assetId, { ...existing, glbUrl: url } as any);
+  }
+
+  getGlbUrl(assetId: string): string | undefined {
+    return (this.registry.get(assetId) as any)?.glbUrl;
+  }
+
   clear(): void {
     this.registry.clear();
   }

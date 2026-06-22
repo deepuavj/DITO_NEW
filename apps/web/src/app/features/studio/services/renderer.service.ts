@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SceneEngine } from '../../../engines/scene/scene.engine';
 import { MaterialEngine } from '../../../engines/material/material.engine';
+import { MetadataEngine } from '../../../engines/metadata/metadata.engine';
 import type { SceneObject } from '../../../core/models/scene.models';
 import type { FPWall, FPDoor, FPWindow } from './floor-plan.service';
 
@@ -19,7 +20,9 @@ const PIXELS_PER_METER = 100;
 export class RendererService implements OnDestroy {
   private readonly sceneEngine = inject(SceneEngine);
   private readonly materialEngine = inject(MaterialEngine);
+  private readonly metadataEngine = inject(MetadataEngine);
   private readonly ngZone = inject(NgZone);
+  private readonly loadingSet = new Set<string>(); // prevent duplicate loads
 
   private renderer!: THREE.WebGLRenderer;
   private threeScene!: THREE.Scene;
@@ -243,35 +246,95 @@ export class RendererService implements OnDestroy {
 
   private syncObject(obj: SceneObject): void {
     let group = this.meshMap.get(obj.id);
+
+    // If no mesh yet, check for a real GLB URL first
     if (!group) {
-      group = new THREE.Group();
-      group.userData['objectId'] = obj.id;
+      const glbUrl = this.metadataEngine.getGlbUrl(obj.assetId);
+      if (glbUrl && !this.loadingSet.has(obj.id)) {
+        this.loadingSet.add(obj.id);
+        // Create a loading placeholder while GLB loads
+        group = this.makePlaceholder(obj.id, 0x555577);
+        this.threeScene.add(group);
+        this.meshMap.set(obj.id, group);
 
-      // Body placeholder — bright orange box sitting on the floor
-      const bodyGeo = new THREE.BoxGeometry(1, 0.8, 0.8);
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0xFF6600, roughness: 0.4, metalness: 0.1,
-        emissive: 0xFF3300, emissiveIntensity: 0.4,
-      });
-      const body = new THREE.Mesh(bodyGeo, bodyMat);
-      body.castShadow = true;
-      body.receiveShadow = true;
-      body.position.y = 0.4; // box center at 0.4m = bottom at y=0
+        this.loader.load(
+          glbUrl,
+          gltf => {
+            // Replace placeholder with real model
+            const old = this.meshMap.get(obj.id);
+            if (old) this.threeScene.remove(old);
 
-      // Thin vertical pole above the box so it's easy to spot from far away
-      const poleGeo = new THREE.CylinderGeometry(0.02, 0.02, 1.2, 8);
-      const poleMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xFFFFFF, emissiveIntensity: 0.8 });
-      const pole = new THREE.Mesh(poleGeo, poleMat);
-      pole.position.y = 1.4; // pole center at 1.4m
+            const realGroup = gltf.scene;
+            realGroup.userData['objectId'] = obj.id;
 
-      group.add(body);
-      group.add(pole);
-      this.threeScene.add(group);
-      this.meshMap.set(obj.id, group);
+            // Auto-scale: fit within a 2m bounding box
+            const box = new THREE.Box3().setFromObject(realGroup);
+            const size = new THREE.Vector3();
+            box.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z) || 1;
+            const targetSize = 1.0; // 1 meter
+            const scaleFactor = targetSize / maxDim;
+            realGroup.scale.setScalar(scaleFactor);
+
+            // Sit on floor (y=0)
+            const box2 = new THREE.Box3().setFromObject(realGroup);
+            realGroup.position.y = -box2.min.y;
+
+            realGroup.traverse(child => {
+              if (child instanceof THREE.Mesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+
+            this.threeScene.add(realGroup);
+            this.meshMap.set(obj.id, realGroup);
+            this.loadingSet.delete(obj.id);
+
+            // Apply current transform
+            const current = this.sceneEngine.objects().find(o => o.id === obj.id);
+            if (current) {
+              realGroup.position.set(current.position[0], realGroup.position.y, current.position[2]);
+              realGroup.rotation.set(...current.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
+            }
+          },
+          undefined,
+          err => {
+            console.error('[DITO] GLB load error:', err);
+            this.loadingSet.delete(obj.id);
+          },
+        );
+      } else if (!group) {
+        group = this.makePlaceholder(obj.id, 0xFF6600);
+        this.threeScene.add(group);
+        this.meshMap.set(obj.id, group);
+      }
     }
-    group.position.set(...obj.position);
+
+    group = this.meshMap.get(obj.id);
+    if (!group) return;
+    group.position.set(obj.position[0], group.position.y, obj.position[2]);
     group.rotation.set(...obj.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
+    if (this.loadingSet.has(obj.id)) return; // don't override GLB scale during load
     group.scale.set(...obj.scale);
+  }
+
+  private makePlaceholder(objectId: string, color: number): THREE.Group {
+    const g = new THREE.Group();
+    g.userData['objectId'] = objectId;
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(0.6, 0.6, 0.6),
+      new THREE.MeshStandardMaterial({ color, roughness: 0.5, emissive: color, emissiveIntensity: 0.3 }),
+    );
+    body.castShadow = true;
+    body.position.y = 0.3;
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.015, 0.015, 1, 8),
+      new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xFFFFFF, emissiveIntensity: 0.9 }),
+    );
+    pole.position.y = 1.2;
+    g.add(body, pole);
+    return g;
   }
 
   loadAsset(objectId: string, glbUrl: string): Promise<THREE.Group> {
