@@ -9,7 +9,7 @@ import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
-import type { FPWall, FPDoor, FPWindow, FPMeasure } from '../../services/floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPMeasure, FPArc } from '../../services/floor-plan.service';
 
 // ─── 2D data model re-exports for template compatibility ──────────────────────
 export type Pt = import('../../services/floor-plan.service').Pt;
@@ -23,9 +23,10 @@ export type Wall    = FPWall;
 export type Door2D  = FPDoor;
 export type Win2D   = FPWindow;
 export type Measure = FPMeasure;
+export type Arc = FPArc;
 
 export interface RoomLabel { id: string; cx: Pt; area: number }
-export type Elem2D = FPWall | FPDoor | FPWindow | FPMeasure;
+export type Elem2D = FPWall | FPDoor | FPWindow | FPMeasure | FPArc;
 
 const PIXELS_PER_METER = 100; // 100 SVG units = 1 m
 const DEFAULT_WALL_META: WallMeta = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
@@ -372,6 +373,53 @@ function rulerInterval(zoom: number): number {
                   </g>
                 }
 
+                <!-- ── Arcs (bezier curve walls) ── -->
+                @for (a of arcs; track a.id) {
+                  <g class="arc-group" [class.selected]="selectedId === a.id"
+                    style="cursor:pointer" (mousedown)="selectElem(a.id, 'arc', $event)">
+                    <path [attr.d]="arcPath(a)"
+                      fill="none"
+                      [attr.stroke]="selectedId === a.id ? '#3B82F6' : a.meta.color"
+                      [attr.stroke-width]="(a.meta.thickness / 1000) * 100 / zoom()"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+                    @if (selectedId === a.id) {
+                      <path [attr.d]="arcPath(a)"
+                        fill="none" stroke="#3B82F6"
+                        [attr.stroke-width]="(a.meta.thickness / 1000) * 100 / zoom() + 2 / zoom()"
+                        stroke-linecap="round" opacity="0.3" pointer-events="none"/>
+                    }
+                    @if (selectedId === a.id) {
+                      <circle [attr.cx]="a.start.x" [attr.cy]="a.start.y" [attr.r]="5/zoom()" fill="#3B82F6" stroke="white" [attr.stroke-width]="1.5/zoom()" pointer-events="none"/>
+                      <circle [attr.cx]="a.ctrl.x" [attr.cy]="a.ctrl.y" [attr.r]="4/zoom()" fill="#F59E0B" stroke="white" [attr.stroke-width]="1.5/zoom()" pointer-events="none"/>
+                      <circle [attr.cx]="a.end.x" [attr.cy]="a.end.y" [attr.r]="5/zoom()" fill="#3B82F6" stroke="white" [attr.stroke-width]="1.5/zoom()" pointer-events="none"/>
+                      <line [attr.x1]="a.start.x" [attr.y1]="a.start.y" [attr.x2]="a.ctrl.x" [attr.y2]="a.ctrl.y" stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()" stroke-dasharray="3,3" opacity="0.6" pointer-events="none"/>
+                      <line [attr.x1]="a.end.x" [attr.y1]="a.end.y" [attr.x2]="a.ctrl.x" [attr.y2]="a.ctrl.y" stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()" stroke-dasharray="3,3" opacity="0.6" pointer-events="none"/>
+                    }
+                    @if (state.showDimensions()) {
+                      <text [attr.x]="a.ctrl.x" [attr.y]="a.ctrl.y - 10/zoom()"
+                        [attr.font-size]="10/zoom()" fill="var(--fg)" text-anchor="middle" pointer-events="none">
+                        {{ arcLabel(a) }}
+                      </text>
+                    }
+                  </g>
+                }
+
+                <!-- Curve preview (phase 1: start set, hovering for ctrl point) -->
+                @if (curvePhase() === 1 && curveStart() && drawCurrent()) {
+                  <path [attr.d]="'M' + curveStart()!.x + ',' + curveStart()!.y + ' Q' + drawCurrent()!.x + ',' + drawCurrent()!.y + ' ' + drawCurrent()!.x + ',' + drawCurrent()!.y"
+                    fill="none" stroke="#3B82F6" [attr.stroke-width]="2/zoom()" stroke-dasharray="5,3" pointer-events="none"/>
+                  <circle [attr.cx]="curveStart()!.x" [attr.cy]="curveStart()!.y" [attr.r]="4/zoom()" fill="#3B82F6" pointer-events="none"/>
+                }
+                <!-- Curve preview (phase 2: start+ctrl set, hovering for end) -->
+                @if (curvePhase() === 2 && curveStart() && curveCtrl() && drawCurrent()) {
+                  <path [attr.d]="'M' + curveStart()!.x + ',' + curveStart()!.y + ' Q' + curveCtrl()!.x + ',' + curveCtrl()!.y + ' ' + drawCurrent()!.x + ',' + drawCurrent()!.y"
+                    fill="none" stroke="#3B82F6" [attr.stroke-width]="4/zoom()" opacity="0.7" pointer-events="none"/>
+                  <circle [attr.cx]="curveStart()!.x" [attr.cy]="curveStart()!.y" [attr.r]="4/zoom()" fill="#3B82F6" pointer-events="none"/>
+                  <circle [attr.cx]="curveCtrl()!.x" [attr.cy]="curveCtrl()!.y" [attr.r]="4/zoom()" fill="#F59E0B" pointer-events="none"/>
+                  <line [attr.x1]="curveStart()!.x" [attr.y1]="curveStart()!.y" [attr.x2]="curveCtrl()!.x" [attr.y2]="curveCtrl()!.y" stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()" stroke-dasharray="3,3" pointer-events="none"/>
+                  <line [attr.x1]="drawCurrent()!.x" [attr.y1]="drawCurrent()!.y" [attr.x2]="curveCtrl()!.x" [attr.y2]="curveCtrl()!.y" stroke="#F59E0B" [attr.stroke-width]="0.8/zoom()" stroke-dasharray="3,3" pointer-events="none"/>
+                }
+
                 <!-- ── In-progress preview ── -->
                 @if (drawStart() && drawCurrent()) {
                   @if (state.drawTool() === 'wall') {
@@ -466,9 +514,10 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   get doors():    FPDoor[]    { return this.floorPlan.doors(); }
   get windows():  FPWindow[]  { return this.floorPlan.windows(); }
   get measures(): FPMeasure[] { return this.floorPlan.measures(); }
+  get arcs():     FPArc[]     { return this.floorPlan.arcs(); }
 
   selectedId: string | null = null;
-  selectedType: 'wall' | 'door' | 'window' | 'measure' | null = null;
+  selectedType: 'wall' | 'door' | 'window' | 'measure' | 'arc' | null = null;
 
   // ─── Viewport signals ────────────────────────────────────────────────────────
   readonly zoom = signal(1);
@@ -483,6 +532,9 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   readonly drawStart   = signal<Pt | null>(null);
   readonly drawCurrent = signal<Pt | null>(null);
   readonly snapPt      = signal<Pt | null>(null);
+  readonly curvePhase  = signal<0 | 1 | 2>(0);
+  readonly curveStart  = signal<Pt | null>(null);
+  readonly curveCtrl   = signal<Pt | null>(null);
   readonly cursorScreenX = signal(0);
   readonly cursorScreenY = signal(0);
 
@@ -517,6 +569,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     const tool = this.state.drawTool();
     if (tool === 'pan' || this.isPanning) return 'grab';
     if (tool === 'select') return 'default';
+    if (tool === 'curve') return 'crosshair';
     return 'crosshair';
   });
 
@@ -748,7 +801,11 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       }
       return;
     }
-    if (e.key === 'Escape') { this.drawStart.set(null); this.drawCurrent.set(null); this.selectedId = null; }
+    if (e.key === 'Escape') {
+      this.drawStart.set(null); this.drawCurrent.set(null);
+      this.curvePhase.set(0); this.curveStart.set(null); this.curveCtrl.set(null);
+      this.selectedId = null;
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) this.deleteSelected();
     if (e.key === 'f' || e.key === 'F') this.fitView();
   }
@@ -854,6 +911,31 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (e.button !== 0) return;
 
     const world = this.snap(this.screenToWorld(screen.x, screen.y));
+
+    if (tool === 'curve') {
+      const phase = this.curvePhase();
+      if (phase === 0) {
+        this.curveStart.set(world);
+        this.drawCurrent.set(world);
+        this.curvePhase.set(1);
+      } else if (phase === 1) {
+        this.curveCtrl.set(world);
+        this.curvePhase.set(2);
+      } else {
+        // commit arc
+        const s = this.curveStart()!;
+        const ctrl = this.curveCtrl()!;
+        this.floorPlan.snapshot();
+        this.floorPlan.arcs.update(as => [...as, { id: uid(), start: s, ctrl, end: world, meta: { ...DEFAULT_WALL_META } }]);
+        this.history.push('Draw curve wall');
+        // chain: start next from this end
+        this.curveStart.set(world);
+        this.curveCtrl.set(null);
+        this.curvePhase.set(1);
+        this.drawCurrent.set(world);
+      }
+      return;
+    }
 
     if (tool === 'wall' || tool === 'measure') {
       const ds = this.drawStart();
@@ -961,6 +1043,9 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    if (this.state.drawTool() === 'curve' && this.curvePhase() > 0) {
+      this.drawCurrent.set(snapped);
+    }
     if (this.drawStart()) {
       this.drawCurrent.set(snapped);
     }
@@ -999,14 +1084,15 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Element selection ───────────────────────────────────────────────────────
-  selectElem(id: string, type: 'wall' | 'door' | 'window' | 'measure', e: MouseEvent): void {
+  selectElem(id: string, type: 'wall' | 'door' | 'window' | 'measure' | 'arc', e: MouseEvent): void {
     if (this.state.drawTool() !== 'select') return;
     e.stopPropagation();
     this.selectedId = id;
     this.selectedType = type;
     this.floorPlan.selectedId.set(id);
-    this.floorPlan.selectedType.set(type === 'measure' ? null : type);
-    if (type === 'wall') this.state.setSelectionState('wall');
+    if (type === 'measure' || type === 'arc') this.floorPlan.selectedType.set(null);
+    else this.floorPlan.selectedType.set(type);
+    if (type === 'wall' || type === 'arc') this.state.setSelectionState('wall');
     else if (type === 'door' || type === 'window') this.state.setSelectionState('furniture');
     else this.state.setSelectionState('none');
   }
@@ -1019,6 +1105,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.floorPlan.doors.update(ds => ds.filter(d => d.id !== id));
     this.floorPlan.windows.update(ws => ws.filter(w => w.id !== id));
     this.floorPlan.measures.update(ms => ms.filter(m => m.id !== id));
+    this.floorPlan.arcs.update(as => as.filter(a => a.id !== id));
     this.history.push('Delete element');
     this.selectedId = null;
     this.selectedType = null;
@@ -1075,6 +1162,27 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // ─── Measure label ───────────────────────────────────────────────────────────
   measureLabel(m: FPMeasure): string {
     const d = dist(m.start, m.end) / PIXELS_PER_METER;
+    return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
+  }
+
+  // ─── Arc rendering helpers ───────────────────────────────────────────────────
+  arcPath(a: FPArc): string {
+    return `M${a.start.x.toFixed(1)},${a.start.y.toFixed(1)} Q${a.ctrl.x.toFixed(1)},${a.ctrl.y.toFixed(1)} ${a.end.x.toFixed(1)},${a.end.y.toFixed(1)}`;
+  }
+
+  arcLabel(a: FPArc): string {
+    const steps = 20;
+    let len = 0;
+    let px = a.start.x, py = a.start.y;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const mt = 1 - t;
+      const x = mt*mt*a.start.x + 2*mt*t*a.ctrl.x + t*t*a.end.x;
+      const y = mt*mt*a.start.y + 2*mt*t*a.ctrl.y + t*t*a.end.y;
+      len += Math.sqrt((x-px)**2+(y-py)**2);
+      px = x; py = y;
+    }
+    const d = len / PIXELS_PER_METER;
     return d < 1 ? (d * 100).toFixed(0) + ' cm' : d.toFixed(2) + ' m';
   }
 

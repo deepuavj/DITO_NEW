@@ -10,9 +10,10 @@ export interface FPWall    { id: string; start: Pt; end: Pt; meta: WallMeta }
 export interface FPDoor    { id: string; pos: Pt; angle: number; wallId: string | null; meta: DoorMeta }
 export interface FPWindow  { id: string; pos: Pt; angle: number; wallId: string | null; meta: WinMeta }
 export interface FPMeasure { id: string; start: Pt; end: Pt; meta: MeasureMeta }
+export interface FPArc { id: string; start: Pt; ctrl: Pt; end: Pt; meta: WallMeta }
 
 interface Snapshot {
-  walls: FPWall[]; doors: FPDoor[]; windows: FPWindow[]; measures: FPMeasure[];
+  walls: FPWall[]; doors: FPDoor[]; windows: FPWindow[]; measures: FPMeasure[]; arcs: FPArc[];
 }
 
 export const DEFAULT_WALL_META: WallMeta = { thickness: 200, height: 2800, material: 'concrete', color: '#D4C8B8' };
@@ -30,10 +31,11 @@ export class FloorPlanService {
   readonly doors    = signal<FPDoor[]>([]);
   readonly windows  = signal<FPWindow[]>([]);
   readonly measures = signal<FPMeasure[]>([]);
+  readonly arcs     = signal<FPArc[]>([]);
 
   // Selection (shared between 2D canvas and properties panel)
   readonly selectedId   = signal<string | null>(null);
-  readonly selectedType = signal<'wall' | 'door' | 'window' | 'measure' | null>(null);
+  readonly selectedType = signal<'wall' | 'door' | 'window' | 'measure' | 'arc' | null>(null);
 
   readonly selectedWall    = computed(() => this.walls().find(w => w.id === this.selectedId()) ?? null);
   readonly selectedDoor    = computed(() => this.doors().find(d => d.id === this.selectedId()) ?? null);
@@ -64,6 +66,7 @@ export class FloorPlanService {
     this.doors.set([]);
     this.windows.set([]);
     this.measures.set([]);
+    this.arcs.set([]);
     this.hist = [this._capture()];
     this.idx = 0;
   }
@@ -94,7 +97,7 @@ export class FloorPlanService {
   }
 
   clear(): void {
-    this.walls.set([]); this.doors.set([]); this.windows.set([]); this.measures.set([]);
+    this.walls.set([]); this.doors.set([]); this.windows.set([]); this.measures.set([]); this.arcs.set([]);
     this.clearSelection();
     this.hist = []; this.idx = -1;
   }
@@ -107,13 +110,13 @@ export class FloorPlanService {
 
   private _capture(): Snapshot {
     return JSON.parse(JSON.stringify({
-      walls: this.walls(), doors: this.doors(), windows: this.windows(), measures: this.measures(),
+      walls: this.walls(), doors: this.doors(), windows: this.windows(), measures: this.measures(), arcs: this.arcs(),
     }));
   }
 
   private _restore(s: Snapshot): void {
     const p = JSON.parse(JSON.stringify(s));
-    this.walls.set(p.walls); this.doors.set(p.doors); this.windows.set(p.windows); this.measures.set(p.measures);
+    this.walls.set(p.walls); this.doors.set(p.doors); this.windows.set(p.windows); this.measures.set(p.measures); this.arcs.set(p.arcs ?? []);
   }
 }
 
