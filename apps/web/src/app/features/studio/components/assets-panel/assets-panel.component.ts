@@ -337,7 +337,7 @@ export class FurnitureLibraryComponent {
 
   onGlbDragStart(event: DragEvent, item: GlbItem): void {
     event.dataTransfer?.setData('application/dito-asset', JSON.stringify({
-      id: item.id, name: item.name, metadata: {},
+      id: item.id, name: item.name, metadata: {}, glbUrl: item.blobUrl,
     }));
   }
 

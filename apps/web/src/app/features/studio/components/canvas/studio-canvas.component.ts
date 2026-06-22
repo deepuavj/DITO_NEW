@@ -768,6 +768,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }
     console.log('[DITO] Dropping asset:', asset.name);
     this.metadataEngine.register(asset.id, asset.metadata ?? {});
+    if (asset.glbUrl) this.metadataEngine.setGlbUrl(asset.id, asset.glbUrl);
     const walls = this.floorPlan.walls();
     let cx = 3.5, cz = 3;
     if (walls.length > 0) {
