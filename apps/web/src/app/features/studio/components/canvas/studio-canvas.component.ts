@@ -567,18 +567,16 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
   ngAfterViewInit(): void {
     this.observeCanvasSize();
-    // Lazily init 3D on first switch to 3D mode.
-    // Canvas is always in DOM (CSS-hidden when in 2D), so no retry needed.
+    // Always defer 3D init to next rAF so the browser has done layout
+    // (canvas.clientWidth is 0 if read synchronously in ngAfterViewInit)
+    if (this.state.viewMode() === '3d') {
+      requestAnimationFrame(() => this.init3D());
+    }
     effect(() => {
       if (this.state.viewMode() === '3d' && !this.threeInitialized) {
-        // Use rAF to let CSS layout flush so the canvas has real dimensions
         requestAnimationFrame(() => this.init3D());
       }
     }, { injector: this.injector });
-    // Init immediately if starting in 3D
-    if (this.state.viewMode() === '3d') {
-      this.init3D();
-    }
   }
 
   private observeCanvasSize(): void {
@@ -654,14 +652,14 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     e.preventDefault();
     e.stopPropagation();
     const raw = e.dataTransfer?.getData('application/dito-asset');
-    if (!raw) return;
+    if (!raw) { console.warn('[DITO] drop fired but no asset data'); return; }
     let asset: any;
     try { asset = JSON.parse(raw); } catch (err) {
       console.error('[DITO] Failed to parse drag asset:', err);
       return;
     }
+    console.log('[DITO] Dropping asset:', asset.name);
     this.metadataEngine.register(asset.id, asset.metadata ?? {});
-    // Place at room center derived from wall bounding box, or default room center
     const walls = this.floorPlan.walls();
     let cx = 3.5, cz = 3;
     if (walls.length > 0) {
@@ -672,6 +670,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }
     this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
     this.history.push(`Added ${asset.name}`);
+    // Force immediate sync so object appears without waiting for next rAF
+    this.renderer.syncScene();
   }
 
   ngOnDestroy(): void {

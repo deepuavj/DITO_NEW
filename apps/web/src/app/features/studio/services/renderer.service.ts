@@ -175,14 +175,26 @@ export class RendererService implements OnDestroy {
     if (!group) {
       group = new THREE.Group();
       group.userData['objectId'] = obj.id;
-      // 1×1×1m placeholder box — brightly colored so it's easy to spot
-      const geo = new THREE.BoxGeometry(1, 1, 1);
-      const mat = new THREE.MeshStandardMaterial({ color: 0xFF6600, roughness: 0.6, emissive: 0x331100 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.position.y = 0.5; // sits on floor (half-height)
-      group.add(mesh);
+
+      // Body placeholder — bright orange box sitting on the floor
+      const bodyGeo = new THREE.BoxGeometry(1, 0.8, 0.8);
+      const bodyMat = new THREE.MeshStandardMaterial({
+        color: 0xFF6600, roughness: 0.4, metalness: 0.1,
+        emissive: 0xFF3300, emissiveIntensity: 0.4,
+      });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      body.position.y = 0.4; // box center at 0.4m = bottom at y=0
+
+      // Thin vertical pole above the box so it's easy to spot from far away
+      const poleGeo = new THREE.CylinderGeometry(0.02, 0.02, 1.2, 8);
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xFFFFFF, emissiveIntensity: 0.8 });
+      const pole = new THREE.Mesh(poleGeo, poleMat);
+      pole.position.y = 1.4; // pole center at 1.4m
+
+      group.add(body);
+      group.add(pole);
       this.threeScene.add(group);
       this.meshMap.set(obj.id, group);
     }
