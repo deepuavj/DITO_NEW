@@ -72,7 +72,7 @@ export class SceneEngine {
 
   loadSceneData(data: SceneData): void {
     this._room.set(data.room);
-    this._objects.set(data.objects);
+    this._objects.set(data.objects ?? []);
   }
 
   serialize(): SceneData {
