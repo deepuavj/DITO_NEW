@@ -2,7 +2,7 @@ import { Injectable, signal } from '@angular/core';
 
 export type StudioMode = 'select' | 'move' | 'rotate' | 'scale';
 export type ViewMode = '2d' | '3d';
-export type DrawTool = 'select' | 'pan' | 'wall' | 'door' | 'window' | 'measure';
+export type DrawTool = 'select' | 'pan' | 'wall' | 'curve' | 'door' | 'window' | 'measure';
 export type SelectionState = 'none' | 'furniture' | 'wall' | 'room';
 export type CameraPreset = 'perspective' | 'top' | 'front' | 'side' | 'eye-level' | 'birds-eye' | 'corner' | 'walkthrough';
 export type TimeOfDay = 'dawn' | 'noon' | 'dusk' | 'night';

@@ -41,6 +41,7 @@ const WALL_IC    = `<rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3
 const DOOR_IC    = `<path d="M13 4H6a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M13 20V4l6 3v13"/><circle cx="16" cy="12" r="0.5" fill="currentColor"/>`;
 const WINDOW_IC  = `<rect x="3" y="5" width="18" height="14" rx="1"/><line x1="12" y1="5" x2="12" y2="19"/><line x1="3" y1="12" x2="21" y2="12"/>`;
 const MEASURE_IC = `<path d="M21.3 8.7 8.7 21.3c-1 1-2.5 1-3.4 0l-2.6-2.6c-1-1-1-2.5 0-3.4L15.3 2.7c1-1 2.5-1 3.4 0l2.6 2.6c1 1 1 2.5 0 3.4z"/><path d="m7.5 10.5 2 2M10.5 7.5l2 2M13.5 4.5l2 2"/>`;
+const CURVE_IC = `<path d="M3 17C3 17 7 3 12 12C17 21 21 7 21 7"/><circle cx="3" cy="17" r="1.5" fill="currentColor"/><circle cx="21" cy="7" r="1.5" fill="currentColor"/>`;
 const SEARCH_IC  = `<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`;
 const CHEVRON_R  = `<polyline points="9 18 15 12 9 6"/>`;
 const CHEVRON_D  = `<polyline points="6 9 12 15 18 9"/>`;
@@ -237,6 +238,7 @@ export class FurnitureLibraryComponent {
     { tool: 'select',  label: 'Select',    svgPath: SELECT_IC,  desc: 'Select & move elements'      },
     { tool: 'pan',     label: 'Pan',       svgPath: PAN_IC,     desc: 'Pan the canvas'              },
     { tool: 'wall',    label: 'Draw Wall', svgPath: WALL_IC,    desc: 'Click to place wall segments' },
+    { tool: 'curve',   label: 'Curve Wall', svgPath: CURVE_IC,  desc: 'Draw curved bezier wall (3-click)' },
     { tool: 'door',    label: 'Door',      svgPath: DOOR_IC,    desc: 'Place door openings'         },
     { tool: 'window',  label: 'Window',    svgPath: WINDOW_IC,  desc: 'Place window openings'       },
     { tool: 'measure', label: 'Measure',   svgPath: MEASURE_IC, desc: 'Measure distances'           },
@@ -280,7 +282,7 @@ export class FurnitureLibraryComponent {
     const reader = new FileReader();
     reader.onload = ev => {
       const parsed = this.parseDxf(ev.target?.result as string);
-      if (parsed.length === 0) { this.showDxfBanner('No LINE entities found in DXF'); return; }
+      if (parsed.length === 0) { this.showDxfBanner('No wall entities found in DXF'); return; }
       this.floorPlan.snapshot();
       this.floorPlan.walls.set(parsed);
       this.showDxfBanner(`Imported ${parsed.length} wall segments`);
@@ -296,20 +298,67 @@ export class FurnitureLibraryComponent {
   }
 
   private parseDxf(text: string): FPWall[] {
-    const walls: FPWall[] = [];
+    const wallsLayer: FPWall[] = [];
+    const wallsAll:   FPWall[] = [];
     const lines = text.split('\n').map(l => l.trim());
+
     for (let i = 0; i < lines.length - 1; i++) {
-      if (lines[i] === '0' && lines[i + 1] === 'LINE') {
+      if (lines[i] !== '0') continue;
+      const etype = lines[i + 1];
+
+      if (etype === 'LINE') {
+        // Scan block for codes
+        let layer = '';
         const c: Record<string, number> = {};
-        for (let j = i + 2; j < Math.min(i + 40, lines.length - 1); j += 2) {
+        for (let j = i + 2; j < Math.min(i + 60, lines.length - 1); j += 2) {
+          const code = lines[j];
+          if (code === '0') break; // next entity
+          if (code === '8') { layer = lines[j + 1]; continue; }
           const v = parseFloat(lines[j + 1]);
-          if (!isNaN(v)) c[lines[j]] = v;
+          if (!isNaN(v)) c[code] = v;
         }
-        if (c['10'] !== undefined)
-          walls.push({ id: uid(), start: { x: c['10'], y: -(c['20'] ?? 0) }, end: { x: c['11'] ?? 0, y: -(c['21'] ?? 0) }, meta: { ...DEFAULT_WALL_META } });
+        if (c['10'] !== undefined) {
+          const wall: FPWall = {
+            id: uid(),
+            start: { x: c['10'], y: -(c['20'] ?? 0) },
+            end:   { x: c['11'] ?? 0, y: -(c['21'] ?? 0) },
+            meta: { ...DEFAULT_WALL_META },
+          };
+          wallsAll.push(wall);
+          if (layer.toLowerCase() === 'walls') wallsLayer.push(wall);
+        }
+      } else if (etype === 'LWPOLYLINE') {
+        // Scan block for layer, flags, and vertices
+        let layer = '';
+        let closed = false;
+        const xs: number[] = [];
+        const ys: number[] = [];
+        for (let j = i + 2; j < lines.length - 1; j += 2) {
+          const code = lines[j];
+          if (code === '0') break; // next entity
+          if (code === '8') { layer = lines[j + 1]; continue; }
+          if (code === '70') { closed = (parseInt(lines[j + 1], 10) & 1) === 1; continue; }
+          if (code === '10') { xs.push(parseFloat(lines[j + 1])); continue; }
+          if (code === '20') { ys.push(parseFloat(lines[j + 1])); continue; }
+        }
+        if (xs.length >= 2 && layer.toLowerCase() === 'walls') {
+          const verts = xs.map((x, k) => ({ x, y: ys[k] ?? 0 }));
+          for (let k = 0; k < verts.length - 1; k++) {
+            wallsLayer.push({ id: uid(), start: verts[k], end: verts[k + 1], meta: { ...DEFAULT_WALL_META } });
+            wallsAll.push(wallsLayer[wallsLayer.length - 1]);
+          }
+          if (closed && verts.length >= 3) {
+            wallsLayer.push({ id: uid(), start: verts[verts.length - 1], end: verts[0], meta: { ...DEFAULT_WALL_META } });
+            wallsAll.push(wallsLayer[wallsLayer.length - 1]);
+          }
+        }
       }
     }
+
+    // Use layer-filtered walls if found, else fall back to all entities
+    const walls = wallsLayer.length > 0 ? wallsLayer : wallsAll;
     if (!walls.length) return walls;
+
     const allX = walls.flatMap(w => [w.start.x, w.end.x]);
     const allY = walls.flatMap(w => [w.start.y, w.end.y]);
     const minX = Math.min(...allX), maxX = Math.max(...allX);
