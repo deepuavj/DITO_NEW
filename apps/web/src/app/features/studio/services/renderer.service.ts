@@ -302,8 +302,10 @@ export class RendererService implements OnDestroy {
       const glbUrl = this.metadataEngine.getGlbUrl(obj.assetId);
       if (glbUrl && !this.loadingSet.has(obj.id)) {
         this.loadingSet.add(obj.id);
-        // Create a loading placeholder while GLB loads
-        group = this.makePlaceholder(obj.id, 0x555577);
+        // Temporary grey cube while GLB loads
+        const loadingMesh = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), new THREE.MeshStandardMaterial({ color: 0x555577 }));
+        loadingMesh.position.y = 0.3;
+        group = new THREE.Group(); group.userData['objectId'] = obj.id; group.add(loadingMesh);
         this.threeScene.add(group);
         this.meshMap.set(obj.id, group);
 
@@ -355,7 +357,7 @@ export class RendererService implements OnDestroy {
           },
         );
       } else if (!group) {
-        group = this.makePlaceholder(obj.id, 0xFF6600);
+        group = this.buildFurnitureMesh(obj.id, obj.assetId);
         this.threeScene.add(group);
         this.meshMap.set(obj.id, group);
       }
@@ -369,21 +371,196 @@ export class RendererService implements OnDestroy {
     group.scale.set(...obj.scale);
   }
 
-  private makePlaceholder(objectId: string, color: number): THREE.Group {
+  private buildFurnitureMesh(objectId: string, assetId: string): THREE.Group {
     const g = new THREE.Group();
     g.userData['objectId'] = objectId;
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 0.6, 0.6),
-      new THREE.MeshStandardMaterial({ color, roughness: 0.5, emissive: color, emissiveIntensity: 0.3 }),
-    );
-    body.castShadow = true;
-    body.position.y = 0.3;
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.015, 0.015, 1, 8),
-      new THREE.MeshStandardMaterial({ color: 0xFFFFFF, emissive: 0xFFFFFF, emissiveIntensity: 0.9 }),
-    );
-    pole.position.y = 1.2;
-    g.add(body, pole);
+
+    const mat = (hex: number, rough = 0.7, metal = 0) =>
+      new THREE.MeshStandardMaterial({ color: hex, roughness: rough, metalness: metal });
+
+    const box = (w: number, h: number, d: number, m: THREE.Material, x = 0, y = 0, z = 0) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      return mesh;
+    };
+    const cyl = (r: number, h: number, m: THREE.Material, x = 0, y = 0, z = 0, segs = 12) => {
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, segs), m);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      return mesh;
+    };
+
+    // ── Sofa (s1=3-seater, s3=loveseat) ──────────────────────────────────────
+    if (assetId === 's1' || assetId === 's3') {
+      const W = assetId === 's1' ? 2.0 : 1.4;
+      const fabric = mat(0x8B6F4E, 0.9);
+      const legM   = mat(0x3B2A1A, 0.8);
+      g.add(
+        box(W, 0.22, 0.7, fabric, 0, 0.22, 0),          // seat cushion
+        box(W, 0.55, 0.18, fabric, 0, 0.55, -0.26),     // back rest
+        box(0.18, 0.45, 0.7, fabric, -(W/2-0.09), 0.4, 0), // left arm
+        box(0.18, 0.45, 0.7, fabric,  (W/2-0.09), 0.4, 0), // right arm
+        cyl(0.04, 0.12, legM, -(W/2-0.1), 0.06,  0.25),
+        cyl(0.04, 0.12, legM,  (W/2-0.1), 0.06,  0.25),
+        cyl(0.04, 0.12, legM, -(W/2-0.1), 0.06, -0.25),
+        cyl(0.04, 0.12, legM,  (W/2-0.1), 0.06, -0.25),
+      );
+    }
+
+    // ── Accent Chair (s2) ─────────────────────────────────────────────────────
+    else if (assetId === 's2') {
+      const fab = mat(0x6B4C2A, 0.85);
+      const leg = mat(0x2A1A0A, 0.8);
+      g.add(
+        box(0.7, 0.18, 0.65, fab, 0, 0.26, 0),
+        box(0.7, 0.5,  0.16, fab, 0, 0.52, -0.25),
+        box(0.16, 0.38, 0.65, fab, -0.27, 0.38, 0),
+        box(0.16, 0.38, 0.65, fab,  0.27, 0.38, 0),
+        cyl(0.03, 0.14, leg, -0.28, 0.07,  0.26),
+        cyl(0.03, 0.14, leg,  0.28, 0.07,  0.26),
+        cyl(0.03, 0.14, leg, -0.28, 0.07, -0.26),
+        cyl(0.03, 0.14, leg,  0.28, 0.07, -0.26),
+      );
+    }
+
+    // ── Ottoman (s4) ──────────────────────────────────────────────────────────
+    else if (assetId === 's4') {
+      const fab = mat(0x7A5C3A, 0.9);
+      const leg = mat(0x3B2010, 0.8);
+      g.add(
+        new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.3, 24), fab),
+        cyl(0.03, 0.12, leg, -0.25, -0.06,  0.25),
+        cyl(0.03, 0.12, leg,  0.25, -0.06,  0.25),
+        cyl(0.03, 0.12, leg, -0.25, -0.06, -0.25),
+        cyl(0.03, 0.12, leg,  0.25, -0.06, -0.25),
+      );
+      g.children[0].position.y = 0.21;
+      (g.children[0] as THREE.Mesh).castShadow = true;
+      (g.children[0] as THREE.Mesh).receiveShadow = true;
+    }
+
+    // ── Coffee Table (t1) ─────────────────────────────────────────────────────
+    else if (assetId === 't1') {
+      const top = mat(0x5C3D1E, 0.6); const leg = mat(0x3B2010, 0.8);
+      g.add(
+        box(1.1, 0.05, 0.55, top, 0, 0.44, 0),
+        cyl(0.03, 0.4, leg, -0.48, 0.2,  0.23),
+        cyl(0.03, 0.4, leg,  0.48, 0.2,  0.23),
+        cyl(0.03, 0.4, leg, -0.48, 0.2, -0.23),
+        cyl(0.03, 0.4, leg,  0.48, 0.2, -0.23),
+      );
+    }
+
+    // ── Dining Table (t2) ─────────────────────────────────────────────────────
+    else if (assetId === 't2') {
+      const top = mat(0x6B4A2A, 0.55); const leg = mat(0x3D2510, 0.75);
+      g.add(
+        box(1.8, 0.06, 0.9, top, 0, 0.74, 0),
+        cyl(0.04, 0.7, leg, -0.82, 0.35,  0.38),
+        cyl(0.04, 0.7, leg,  0.82, 0.35,  0.38),
+        cyl(0.04, 0.7, leg, -0.82, 0.35, -0.38),
+        cyl(0.04, 0.7, leg,  0.82, 0.35, -0.38),
+      );
+    }
+
+    // ── Side Table (t3) ───────────────────────────────────────────────────────
+    else if (assetId === 't3') {
+      const top = mat(0x7A5A35, 0.6); const leg = mat(0x3B2510, 0.8);
+      g.add(
+        box(0.5, 0.04, 0.5, top, 0, 0.56, 0),
+        cyl(0.025, 0.54, leg, -0.21, 0.27,  0.21),
+        cyl(0.025, 0.54, leg,  0.21, 0.27,  0.21),
+        cyl(0.025, 0.54, leg, -0.21, 0.27, -0.21),
+        cyl(0.025, 0.54, leg,  0.21, 0.27, -0.21),
+      );
+    }
+
+    // ── Queen Bed (b1) & King Bed (b2) ───────────────────────────────────────
+    else if (assetId === 'b1' || assetId === 'b2') {
+      const W = assetId === 'b2' ? 1.8 : 1.5;
+      const frame = mat(0x4A3520, 0.8); const mattress = mat(0xE8DDD0, 0.95);
+      const pillow = mat(0xFAF7F2, 0.95); const blanket = mat(0x6B7FAA, 0.85);
+      g.add(
+        box(W + 0.1, 0.2, 2.05, frame, 0, 0.1, 0),          // bed frame
+        box(W, 0.22, 1.8, mattress, 0, 0.31, 0.1),           // mattress
+        box(W, 0.5, 0.08, frame, 0, 0.5, -0.98),             // headboard
+        box(W - 0.1, 0.04, 0.72, blanket, 0, 0.44, 0.5),    // blanket
+        box(0.4, 0.08, 0.28, pillow, -(W/2-0.23), 0.43, -0.55), // pillow L
+        box(0.4, 0.08, 0.28, pillow,  (W/2-0.23), 0.43, -0.55), // pillow R
+      );
+    }
+
+    // ── Wardrobe (st1) ───────────────────────────────────────────────────────
+    else if (assetId === 'st1') {
+      const wood = mat(0x6B4E2A, 0.7); const panel = mat(0x7A5A35, 0.65);
+      const handle = mat(0xBB9960, 0.3, 0.6);
+      g.add(
+        box(1.8, 2.2, 0.6, wood, 0, 1.1, 0),                // carcass
+        box(0.84, 2.1, 0.02, panel, -0.46, 1.1, 0.31),      // left door
+        box(0.84, 2.1, 0.02, panel,  0.46, 1.1, 0.31),      // right door
+        cyl(0.015, 0.12, handle, -0.06, 1.1, 0.33, 8),      // handle L
+        cyl(0.015, 0.12, handle,  0.98, 1.1, 0.33, 8),      // handle R
+      );
+    }
+
+    // ── Bookshelf (st2) ──────────────────────────────────────────────────────
+    else if (assetId === 'st2') {
+      const wood = mat(0x7A5A35, 0.7); const book1 = mat(0xB34040, 0.9);
+      const book2 = mat(0x3A6B8A, 0.9); const book3 = mat(0x4A8A4A, 0.9);
+      g.add(
+        box(1.0, 0.02, 0.28, wood, 0, 1.8, 0),  // top
+        box(1.0, 0.02, 0.28, wood, 0, 1.2, 0),  // shelf 3
+        box(1.0, 0.02, 0.28, wood, 0, 0.6, 0),  // shelf 2
+        box(1.0, 0.02, 0.28, wood, 0, 0.0, 0),  // bottom
+        box(0.02, 1.82, 0.28, wood, -0.5, 0.9, 0),  // left side
+        box(0.02, 1.82, 0.28, wood,  0.5, 0.9, 0),  // right side
+        box(0.06, 0.5, 0.24, book1, -0.35, 0.91, 0),
+        box(0.06, 0.45, 0.24, book2, -0.25, 0.89, 0),
+        box(0.06, 0.52, 0.24, book3, -0.15, 0.92, 0),
+        box(0.06, 0.5, 0.24, book1,  0.25, 1.51, 0),
+        box(0.06, 0.44, 0.24, book2,  0.35, 1.49, 0),
+      );
+    }
+
+    // ── Floor Lamp (l1) ──────────────────────────────────────────────────────
+    else if (assetId === 'l1') {
+      const metal = mat(0x888880, 0.3, 0.8); const shade = mat(0xF0E6C8, 0.7);
+      const base  = mat(0x555550, 0.4, 0.6);
+      g.add(
+        new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.04, 24), base), // base disc
+        cyl(0.015, 1.55, metal, 0, 0.8, 0),                  // pole
+        new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.3, 24), shade),           // shade
+      );
+      g.children[0].position.y = 0.02;
+      (g.children[0] as THREE.Mesh).castShadow = true;
+      g.children[2].position.y = 1.65;
+      (g.children[2] as THREE.Mesh).castShadow = true;
+      (g.children[2] as THREE.Mesh).receiveShadow = true;
+    }
+
+    // ── Pendant Light (l2) ───────────────────────────────────────────────────
+    else if (assetId === 'l2') {
+      const metal = mat(0x888880, 0.2, 0.9); const shade = mat(0xF5EDD5, 0.6);
+      g.add(
+        cyl(0.006, 1.6, metal, 0, 1.7, 0, 6),               // wire
+        new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 12), shade),          // globe shade
+      );
+      g.children[1].position.y = 0.82;
+      (g.children[1] as THREE.Mesh).castShadow = true;
+    }
+
+    // ── Generic fallback ─────────────────────────────────────────────────────
+    else {
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.7, 0.7, 0.7),
+        mat(0x888899, 0.6),
+      );
+      body.castShadow = true; body.receiveShadow = true;
+      body.position.y = 0.35;
+      g.add(body);
+    }
+
     return g;
   }
 
