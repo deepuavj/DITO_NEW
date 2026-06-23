@@ -888,6 +888,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
 
   // ─── Wall endpoint / body drag ───────────────────────────────────────────────
   onEndpointDown(e: MouseEvent, wallId: string, endpoint: 'start' | 'end'): void {
+    if (this.state.drawTool() !== 'select') return; // let other tools handle the click
     e.stopPropagation();
     e.preventDefault();
     // Auto-select wall
@@ -902,10 +903,11 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   onWallBodyDown(e: MouseEvent, wallId: string): void {
+    const tool = this.state.drawTool();
+    // Only intercept in select mode; let other tools receive the canvas onDown
+    if (tool !== 'select') return;
     e.stopPropagation();
     e.preventDefault();
-    const tool = this.state.drawTool();
-    // Only drag body when in select mode and wall is already selected
     if (tool === 'select') {
       this.selectedId = wallId;
       this.selectedType = 'wall';
