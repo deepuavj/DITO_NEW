@@ -849,6 +849,8 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // ─── Wall snapping for doors/windows ────────────────────────────────────────
   private nearestWallPoint(pt: Pt): { pos: Pt; angle: number; wallId: string } | null {
     let best: { pos: Pt; angle: number; wallId: string; d: number } | null = null;
+
+    // Straight walls — project pt onto segment
     for (const w of this.floorPlan.walls()) {
       const dx = w.end.x - w.start.x;
       const dy = w.end.y - w.start.y;
@@ -861,6 +863,25 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
         best = { pos: proj, angle: Math.atan2(dy, dx) * 180 / Math.PI, wallId: w.id, d };
       }
     }
+
+    // Curved walls — sample bezier at 64 points and pick closest
+    const ARC_SAMPLES = 64;
+    for (const arc of this.floorPlan.arcs()) {
+      for (let i = 0; i <= ARC_SAMPLES; i++) {
+        const t = i / ARC_SAMPLES;
+        const u = 1 - t;
+        const bx = u * u * arc.start.x + 2 * u * t * arc.ctrl.x + t * t * arc.end.x;
+        const by = u * u * arc.start.y + 2 * u * t * arc.ctrl.y + t * t * arc.end.y;
+        const d = Math.sqrt((pt.x - bx) ** 2 + (pt.y - by) ** 2);
+        if (!best || d < best.d) {
+          // Tangent at t: derivative of quadratic bezier
+          const tdx = 2 * (1 - t) * (arc.ctrl.x - arc.start.x) + 2 * t * (arc.end.x - arc.ctrl.x);
+          const tdy = 2 * (1 - t) * (arc.ctrl.y - arc.start.y) + 2 * t * (arc.end.y - arc.ctrl.y);
+          best = { pos: { x: bx, y: by }, angle: Math.atan2(tdy, tdx) * 180 / Math.PI, wallId: arc.id, d };
+        }
+      }
+    }
+
     // Only snap if within reasonable threshold (200px world units)
     return best && best.d < 200 / this.zoom() ? best : null;
   }
