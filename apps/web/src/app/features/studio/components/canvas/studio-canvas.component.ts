@@ -489,6 +489,87 @@ function rulerInterval(zoom: number): number {
                         stroke="#3B82F6" [attr.stroke-width]="1/zoom()" pointer-events="none"/>
                 }
 
+                <!-- ── Shapes (line/rect/circle/polygon/polyline) ── -->
+                @for (sh of shapes; track sh.id) {
+                  <g style="cursor:pointer" (mousedown)="selectElem(sh.id, 'shape', $event)">
+                    @if (sh.type === 'circle') {
+                      <circle [attr.cx]="sh.points[0].x" [attr.cy]="sh.points[0].y"
+                        [attr.r]="circleRadius(sh)"
+                        [attr.fill]="sh.fill" [attr.stroke]="selectedId===sh.id?'#3B82F6':sh.stroke"
+                        [attr.stroke-width]="sh.strokeWidth/zoom()" stroke-linecap="round"/>
+                    } @else {
+                      <path [attr.d]="shapePathD(sh)"
+                        [attr.fill]="sh.fill" [attr.stroke]="selectedId===sh.id?'#3B82F6':sh.stroke"
+                        [attr.stroke-width]="sh.strokeWidth/zoom()" stroke-linejoin="round" stroke-linecap="round"/>
+                    }
+                  </g>
+                }
+
+                <!-- ── Stairs ── -->
+                @for (st of stairs; track st.id) {
+                  <g style="cursor:pointer" (mousedown)="selectElem(st.id, 'stair', $event)">
+                    <path [attr.d]="stairSVG(st)" fill="none"
+                      [attr.stroke]="selectedId===st.id?'#3B82F6':'#6B7280'"
+                      [attr.stroke-width]="1.5/zoom()" stroke-linecap="square"/>
+                    @if (selectedId === st.id) {
+                      <circle [attr.cx]="st.start.x" [attr.cy]="st.start.y" [attr.r]="5/zoom()" fill="#3B82F6" pointer-events="none"/>
+                      <circle [attr.cx]="st.end.x" [attr.cy]="st.end.y" [attr.r]="5/zoom()" fill="#3B82F6" pointer-events="none"/>
+                    }
+                  </g>
+                }
+
+                <!-- ── Text annotations ── -->
+                @for (tx of texts; track tx.id) {
+                  <g style="cursor:pointer" (mousedown)="selectElem(tx.id, 'text', $event)">
+                    @if (selectedId === tx.id) {
+                      <rect [attr.x]="tx.pos.x-44/zoom()" [attr.y]="tx.pos.y-tx.fontSize/zoom()-2/zoom()"
+                        [attr.width]="88/zoom()" [attr.height]="(tx.fontSize+6)/zoom()"
+                        fill="rgba(59,130,246,0.07)" stroke="#3B82F6" [attr.stroke-width]="1/zoom()" stroke-dasharray="3,2" pointer-events="none"/>
+                    }
+                    <text [attr.x]="tx.pos.x" [attr.y]="tx.pos.y"
+                      [attr.font-size]="tx.fontSize/zoom()"
+                      [attr.fill]="selectedId===tx.id?'#3B82F6':tx.color"
+                      [attr.font-weight]="tx.bold?'bold':'normal'"
+                      text-anchor="middle" dominant-baseline="central" pointer-events="none">{{ tx.text }}</text>
+                  </g>
+                }
+
+                <!-- ── Box-select rectangle ── -->
+                @if (boxSelectRect()) {
+                  <rect
+                    [attr.x]="(boxSelectRect()!.x - panX()) / zoom()"
+                    [attr.y]="(boxSelectRect()!.y - panY()) / zoom()"
+                    [attr.width]="boxSelectRect()!.w / zoom()"
+                    [attr.height]="boxSelectRect()!.h / zoom()"
+                    fill="rgba(59,130,246,0.06)" stroke="#3B82F6"
+                    [attr.stroke-width]="1/zoom()" stroke-dasharray="4,2" pointer-events="none"/>
+                }
+
+                <!-- ── Polygon / polyline in-progress preview ── -->
+                @if ((state.drawTool()==='polygon'||state.drawTool()==='polyline') && polyPoints.length > 0) {
+                  <path [attr.d]="polylinePreviewD()" fill="none" stroke="#3B82F6"
+                    [attr.stroke-width]="1.5/zoom()" stroke-dasharray="5,3" pointer-events="none"/>
+                  @for (pp of polyPoints; track $index) {
+                    <circle [attr.cx]="pp.x" [attr.cy]="pp.y" [attr.r]="4/zoom()" fill="#3B82F6" pointer-events="none"/>
+                  }
+                }
+
+                <!-- ── Two-click rect preview (room-rect / rect) ── -->
+                @if (twoClickStart && drawCurrent() && (state.drawTool()==='room-rect'||state.drawTool()==='rect')) {
+                  @let ra = rectPreviewAttrs(twoClickStart, drawCurrent()!);
+                  <rect [attr.x]="ra.x" [attr.y]="ra.y" [attr.width]="ra.w" [attr.height]="ra.h"
+                    fill="rgba(59,130,246,0.08)" stroke="#3B82F6"
+                    [attr.stroke-width]="1.5/zoom()" stroke-dasharray="5,3" pointer-events="none"/>
+                }
+
+                <!-- ── Two-click circle preview ── -->
+                @if (twoClickStart && drawCurrent() && state.drawTool()==='circle') {
+                  <circle [attr.cx]="twoClickStart.x" [attr.cy]="twoClickStart.y"
+                    [attr.r]="circleRadiusPt(twoClickStart, drawCurrent()!)"
+                    fill="rgba(59,130,246,0.08)" stroke="#3B82F6"
+                    [attr.stroke-width]="1.5/zoom()" stroke-dasharray="5,3" pointer-events="none"/>
+                }
+
                 <!-- ── Empty state ── -->
                 @if (walls.length === 0 && !drawStart()) {
                   <g pointer-events="none" [attr.transform]="emptyHintTransform()">
@@ -502,6 +583,45 @@ function rulerInterval(zoom: number): number {
 
               </g><!-- end viewport group -->
             </svg>
+
+            <!-- ── Inline text editor ── -->
+            @if (textEditPos()) {
+              <div style="position:absolute;z-index:50;pointer-events:auto"
+                [style.left.px]="textEditPos()!.x * zoom() + panX()"
+                [style.top.px]="textEditPos()!.y * zoom() + panY()">
+                <input type="text" autofocus
+                  [value]="textEditValue()"
+                  (input)="textEditValue.set($any($event.target).value)"
+                  (keydown.enter)="commitTextEdit()"
+                  (keydown.escape)="textEditPos.set(null)"
+                  (blur)="commitTextEdit()"
+                  style="background:white;color:#111;border:2px solid #3B82F6;border-radius:4px;
+                         padding:3px 8px;font-size:14px;outline:none;min-width:100px;
+                         box-shadow:0 2px 8px rgba(0,0,0,0.2);transform:translateX(-50%)"/>
+              </div>
+            }
+
+            <!-- ── Selection action bar ── -->
+            @if (selectedId) {
+              <div style="position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;
+                          background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;
+                          padding:3px 8px;display:flex;gap:2px;align-items:center;
+                          box-shadow:0 2px 8px rgba(0,0,0,0.15)">
+                <button (click)="duplicateSelected()" title="Duplicate (Ctrl+D)"
+                  style="width:28px;height:28px;border:none;background:none;color:var(--muted);cursor:pointer;border-radius:5px;font-size:14px"
+                  onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='none'">⧉</button>
+                <button (click)="mirrorSelected('h')" title="Mirror Horizontal"
+                  style="width:28px;height:28px;border:none;background:none;color:var(--muted);cursor:pointer;border-radius:5px;font-size:14px"
+                  onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='none'">↔</button>
+                <button (click)="mirrorSelected('v')" title="Mirror Vertical"
+                  style="width:28px;height:28px;border:none;background:none;color:var(--muted);cursor:pointer;border-radius:5px;font-size:14px"
+                  onmouseover="this.style.background='rgba(255,255,255,0.1)'" onmouseout="this.style.background='none'">↕</button>
+                <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+                <button (click)="deleteSelected()" title="Delete (Del)"
+                  style="width:28px;height:28px;border:none;background:none;color:#EF4444;cursor:pointer;border-radius:5px;font-size:14px"
+                  onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='none'">🗑</button>
+              </div>
+            }
 
             <!-- ── Zoom controls ── -->
             <div class="zoom-controls">
@@ -598,9 +718,12 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   get windows():  FPWindow[]  { return this.floorPlan.windows(); }
   get measures(): FPMeasure[] { return this.floorPlan.measures(); }
   get arcs():     FPArc[]     { return this.floorPlan.arcs(); }
+  get stairs():   FPStair[]   { return this.floorPlan.stairs(); }
+  get texts():    FPText[]    { return this.floorPlan.texts(); }
+  get shapes():   FPShape[]   { return this.floorPlan.shapes(); }
 
   selectedId: string | null = null;
-  selectedType: 'wall' | 'door' | 'window' | 'measure' | 'arc' | null = null;
+  selectedType: 'wall' | 'door' | 'window' | 'measure' | 'arc' | 'stair' | 'text' | 'shape' | null = null;
 
   // ─── Viewport signals ────────────────────────────────────────────────────────
   readonly zoom = signal(1);
@@ -630,6 +753,24 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   banner: string | null = null;
   private bannerTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ─── New tool state ──────────────────────────────────────────────────────────
+  // Multi-point tools (polygon/polyline)
+  polyPoints: Pt[] = [];
+  // Two-click tools (room-rect, line, rect, circle, stair)
+  twoClickStart: Pt | null = null;
+  // Box select
+  private boxSelectStart: Pt | null = null;
+  private boxSelecting = false;
+  readonly boxSelectRect = signal<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Freehand
+  private freehandPoints: Pt[] = [];
+  private isFreehand = false;
+  // Move tool drag
+  private moveStart: Pt | null = null;
+  // Inline text editor
+  readonly textEditPos = signal<Pt | null>(null);
+  readonly textEditValue = signal('');
+
   // ─── Computed transforms ─────────────────────────────────────────────────────
   readonly viewTransform = computed(
     () => `translate(${this.panX()},${this.panY()}) scale(${this.zoom()})`
@@ -650,9 +791,11 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   // SVG cursor style
   readonly cursor = computed(() => {
     const tool = this.state.drawTool();
-    if (tool === 'pan' || this.isPanning) return 'grab';
-    if (tool === 'select') return 'default';
-    if (tool === 'curve') return 'crosshair';
+    if (this.isPanning || tool === 'pan') return 'grab';
+    if (tool === 'select' || tool === 'box-select' || tool === 'lasso') return 'default';
+    if (tool === 'move') return 'move';
+    if (tool === 'text' || tool === 'label' || tool === 'note') return 'text';
+    if (tool === 'split-wall') return 'crosshair';
     return 'crosshair';
   });
 
@@ -949,13 +1092,37 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       }
       return;
     }
+    const ctrl = e.ctrlKey || e.metaKey;
     if (e.key === 'Escape') {
+      this.polyPoints = []; this.twoClickStart = null; this.freehandPoints = []; this.isFreehand = false;
       this.drawStart.set(null); this.drawCurrent.set(null);
       this.curvePhase.set(0); this.curveStart.set(null); this.curveCtrl.set(null);
-      this.selectedId = null;
+      this.textEditPos.set(null); this.boxSelectRect.set(null); this.boxSelecting = false;
+      this.selectedId = null; this.selectedType = null;
+      return;
     }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) this.deleteSelected();
-    if (e.key === 'f' || e.key === 'F') this.fitView();
+    if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) { this.deleteSelected(); return; }
+    if (ctrl && e.key === 'a') { e.preventDefault(); this.floorPlan.selectAll(); return; }
+    if (ctrl && e.key === 'd') { e.preventDefault(); this.duplicateSelected(); return; }
+    if (e.key === 'f' || e.key === 'F') { this.fitView(); return; }
+    // Tool shortcuts (no modifier)
+    if (!ctrl && !e.altKey && !e.shiftKey) {
+      const shortcuts: Partial<Record<string, import('../../services/studio-state.service').DrawTool>> = {
+        's': 'select', 'b': 'box-select', 'l': 'lasso',
+        'w': 'wall', 'r': 'room-rect', 'c': 'curve',
+        'd': 'door', 'i': 'window', 'x': 'stair',
+        't': 'text', 'k': 'label', 'n': 'note', 'm': 'measure',
+        'p': 'pan', 'e': 'rect', 'o': 'circle',
+        'g': 'polygon', 'y': 'polyline', 'h': 'freehand',
+        'v': 'move', 'u': 'split-wall',
+      };
+      const tool = shortcuts[e.key.toLowerCase()];
+      if (tool) {
+        this.state.setDrawTool(tool);
+        this.polyPoints = []; this.twoClickStart = null;
+        this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+    }
   }
 
   /** Returns room height in metres from the first wall's meta, defaulting to 2.8m */
@@ -1162,12 +1329,144 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     if (tool === 'select') {
       this.selectedId = null;
       this.selectedType = null;
+      return;
+    }
+
+    // ── Box / lasso select ─────────────────────────────────────────────────
+    if (tool === 'box-select' || tool === 'lasso') {
+      this.boxSelectStart = screen;
+      this.boxSelecting = true;
+      this.boxSelectRect.set(null);
+      return;
+    }
+
+    // ── Room rect (4-wall closed rectangle) ───────────────────────────────
+    if (tool === 'room-rect') {
+      if (!this.twoClickStart) {
+        this.twoClickStart = world;
+        this.drawStart.set(world);
+        this.drawCurrent.set(world);
+      } else {
+        const s = this.twoClickStart, e = world;
+        const corners = [{ x: s.x, y: s.y }, { x: e.x, y: s.y }, { x: e.x, y: e.y }, { x: s.x, y: e.y }];
+        this.floorPlan.snapshot();
+        for (let i = 0; i < 4; i++)
+          this.floorPlan.walls.update(ws => [...ws, { id: uid(), start: corners[i], end: corners[(i + 1) % 4], meta: { ...DEFAULT_WALL_META } }]);
+        this.history.push('Draw room');
+        this.twoClickStart = null; this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+      return;
+    }
+
+    // ── Line ──────────────────────────────────────────────────────────────
+    if (tool === 'line') {
+      if (!this.twoClickStart) { this.twoClickStart = world; this.drawStart.set(world); this.drawCurrent.set(world); }
+      else {
+        this.floorPlan.snapshot();
+        this.floorPlan.shapes.update(ss => [...ss, { id: uid(), type: 'line', points: [this.twoClickStart!, world], closed: false, stroke: '#374151', fill: 'none', strokeWidth: 2 }]);
+        this.history.push('Draw line');
+        this.twoClickStart = null; this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+      return;
+    }
+
+    // ── Rect ──────────────────────────────────────────────────────────────
+    if (tool === 'rect') {
+      if (!this.twoClickStart) { this.twoClickStart = world; this.drawStart.set(world); this.drawCurrent.set(world); }
+      else {
+        const s = this.twoClickStart!, e = world;
+        this.floorPlan.snapshot();
+        this.floorPlan.shapes.update(ss => [...ss, { id: uid(), type: 'rect', points: [s, { x: e.x, y: s.y }, e, { x: s.x, y: e.y }], closed: true, stroke: '#374151', fill: 'rgba(59,130,246,0.08)', strokeWidth: 2 }]);
+        this.history.push('Draw rect');
+        this.twoClickStart = null; this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+      return;
+    }
+
+    // ── Circle ────────────────────────────────────────────────────────────
+    if (tool === 'circle') {
+      if (!this.twoClickStart) { this.twoClickStart = world; this.drawStart.set(world); this.drawCurrent.set(world); }
+      else {
+        this.floorPlan.snapshot();
+        this.floorPlan.shapes.update(ss => [...ss, { id: uid(), type: 'circle', points: [this.twoClickStart!, world], closed: true, stroke: '#374151', fill: 'rgba(59,130,246,0.08)', strokeWidth: 2 }]);
+        this.history.push('Draw circle');
+        this.twoClickStart = null; this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+      return;
+    }
+
+    // ── Polygon / Polyline ────────────────────────────────────────────────
+    if (tool === 'polygon' || tool === 'polyline') {
+      this.polyPoints.push(world);
+      this.drawCurrent.set(world);
+      return;
+    }
+
+    // ── Freehand ─────────────────────────────────────────────────────────
+    if (tool === 'freehand') {
+      this.isFreehand = true;
+      this.freehandPoints = [world];
+      return;
+    }
+
+    // ── Stair ─────────────────────────────────────────────────────────────
+    if (tool === 'stair') {
+      if (!this.twoClickStart) { this.twoClickStart = world; this.drawStart.set(world); this.drawCurrent.set(world); }
+      else {
+        this.floorPlan.snapshot();
+        const floorId = this.floorPlan.activeFloorId();
+        this.floorPlan.stairs.update(ss => [...ss, { id: uid(), start: this.twoClickStart!, end: world, meta: { ...DEFAULT_STAIR_META, startFloorId: floorId, endFloorId: floorId } }]);
+        this.history.push('Place stair');
+        this.twoClickStart = null; this.drawStart.set(null); this.drawCurrent.set(null);
+      }
+      return;
+    }
+
+    // ── Text / Label / Note ───────────────────────────────────────────────
+    if (tool === 'text' || tool === 'label' || tool === 'note') {
+      this.textEditPos.set(world);
+      this.textEditValue.set('');
+      return;
+    }
+
+    // ── Move ──────────────────────────────────────────────────────────────
+    if (tool === 'move') {
+      this.moveStart = world;
+      return;
+    }
+
+    // ── Split wall ────────────────────────────────────────────────────────
+    if (tool === 'split-wall') {
+      this.splitWallAt(world);
+      return;
+    }
+
+    // ── Mirror ────────────────────────────────────────────────────────────
+    if (tool === 'mirror') {
+      if (this.selectedId) this.mirrorSelected('h');
+      return;
     }
   }
 
   onDblClick(e: MouseEvent): void {
-    // Double-click ends wall chain
-    if (this.state.drawTool() === 'wall') {
+    const tool = this.state.drawTool();
+    // Polygon / polyline — commit on double-click
+    if ((tool === 'polygon' || tool === 'polyline') && this.polyPoints.length >= 2) {
+      // Remove the last duplicate point added by the second click of dblclick
+      const pts = this.polyPoints.slice(0, -1);
+      this.floorPlan.snapshot();
+      this.floorPlan.shapes.update(ss => [...ss, {
+        id: uid(), type: tool === 'polygon' ? 'polygon' : 'polyline',
+        points: pts, closed: tool === 'polygon',
+        stroke: '#374151', fill: tool === 'polygon' ? 'rgba(59,130,246,0.08)' : 'none', strokeWidth: 2,
+      }]);
+      this.history.push(`Draw ${tool}`);
+      this.polyPoints = []; this.drawStart.set(null); this.drawCurrent.set(null);
+      e.preventDefault();
+      return;
+    }
+    // Wall chain — double-click ends it
+    if (tool === 'wall') {
       this.drawStart.set(null);
       this.drawCurrent.set(null);
     }
@@ -1220,24 +1519,75 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (this.state.drawTool() === 'curve' && this.curvePhase() > 0) {
+    const tool = this.state.drawTool();
+
+    // Box select drag
+    if (this.boxSelecting && this.boxSelectStart) {
+      const sx = Math.min(this.boxSelectStart.x, screen.x);
+      const sy = Math.min(this.boxSelectStart.y, screen.y);
+      const sw = Math.abs(screen.x - this.boxSelectStart.x);
+      const sh = Math.abs(screen.y - this.boxSelectStart.y);
+      this.boxSelectRect.set({ x: sx, y: sy, w: sw, h: sh });
+      return;
+    }
+
+    // Freehand collect points
+    if (this.isFreehand) {
+      this.freehandPoints.push(snapped);
+      this.drawCurrent.set(snapped);
+      return;
+    }
+
+    // Move tool — translate selected element
+    if (this.moveStart && this.selectedId && tool === 'move') {
+      const dx = raw.x - this.moveStart.x, dy = raw.y - this.moveStart.y;
+      const id = this.selectedId;
+      this.floorPlan.walls.update(ws => ws.map(w => w.id !== id ? w : { ...w, start: { x: w.start.x + dx, y: w.start.y + dy }, end: { x: w.end.x + dx, y: w.end.y + dy } }));
+      this.floorPlan.doors.update(ds => ds.map(d => d.id !== id ? d : { ...d, pos: { x: d.pos.x + dx, y: d.pos.y + dy } }));
+      this.floorPlan.windows.update(ws => ws.map(w => w.id !== id ? w : { ...w, pos: { x: w.pos.x + dx, y: w.pos.y + dy } }));
+      this.floorPlan.stairs.update(ss => ss.map(s => s.id !== id ? s : { ...s, start: { x: s.start.x + dx, y: s.start.y + dy }, end: { x: s.end.x + dx, y: s.end.y + dy } }));
+      this.floorPlan.texts.update(ts => ts.map(t => t.id !== id ? t : { ...t, pos: { x: t.pos.x + dx, y: t.pos.y + dy } }));
+      this.floorPlan.shapes.update(ss => ss.map(s => s.id !== id ? s : { ...s, points: s.points.map(p => ({ x: p.x + dx, y: p.y + dy })) }));
+      this.moveStart = raw;
+      return;
+    }
+
+    if (tool === 'curve' && this.curvePhase() > 0) {
       this.drawCurrent.set(snapped);
     }
-    if (this.drawStart()) {
+    if (this.drawStart() || this.twoClickStart || tool === 'polygon' || tool === 'polyline') {
       this.drawCurrent.set(snapped);
     }
   }
 
   onUp(e: MouseEvent): void {
     if (e.button === 1 || this.state.drawTool() === 'pan') this.isPanning = false;
-    if (this.wallEndpointEdit) {
-      this.history.push('Resize wall');
-      this.wallEndpointEdit = null;
+    if (this.wallEndpointEdit) { this.history.push('Resize wall'); this.wallEndpointEdit = null; }
+    if (this.wallBodyDrag) { this.history.push('Move wall'); this.wallBodyDrag = null; }
+
+    // Box-select commit
+    if (this.boxSelecting) {
+      this.commitBoxSelect();
+      this.boxSelecting = false;
+      this.boxSelectStart = null;
+      this.boxSelectRect.set(null);
+      return;
     }
-    if (this.wallBodyDrag) {
-      this.history.push('Move wall');
-      this.wallBodyDrag = null;
+
+    // Freehand commit
+    if (this.isFreehand) {
+      this.isFreehand = false;
+      if (this.freehandPoints.length > 2) {
+        this.floorPlan.snapshot();
+        this.floorPlan.shapes.update(ss => [...ss, { id: uid(), type: 'polyline', points: [...this.freehandPoints], closed: false, stroke: '#374151', fill: 'none', strokeWidth: 2 }]);
+        this.history.push('Freehand draw');
+      }
+      this.freehandPoints = []; this.drawCurrent.set(null);
+      return;
     }
+
+    // Move commit
+    if (this.moveStart) { this.moveStart = null; this.history.push('Move element'); }
   }
 
   onLeave(): void {
@@ -1261,17 +1611,17 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   // ─── Element selection ───────────────────────────────────────────────────────
-  selectElem(id: string, type: 'wall' | 'door' | 'window' | 'measure' | 'arc', e: MouseEvent): void {
-    if (this.state.drawTool() !== 'select') return;
+  selectElem(id: string, type: 'wall' | 'door' | 'window' | 'measure' | 'arc' | 'stair' | 'text' | 'shape', e: MouseEvent): void {
+    const tool = this.state.drawTool();
+    if (tool !== 'select' && tool !== 'move') return;
     e.stopPropagation();
     this.selectedId = id;
     this.selectedType = type;
     this.floorPlan.selectedId.set(id);
-    if (type === 'measure' || type === 'arc') this.floorPlan.selectedType.set(null);
-    else this.floorPlan.selectedType.set(type);
-    if (type === 'wall' || type === 'arc') this.state.setSelectionState('wall');
-    else if (type === 'door' || type === 'window') this.state.setSelectionState('furniture');
-    else this.state.setSelectionState('none');
+    if (type === 'wall') { this.floorPlan.selectedType.set('wall'); this.state.setSelectionState('wall'); }
+    else if (type === 'door') { this.floorPlan.selectedType.set('door'); this.state.setSelectionState('furniture'); }
+    else if (type === 'window') { this.floorPlan.selectedType.set('window'); this.state.setSelectionState('furniture'); }
+    else { this.floorPlan.selectedType.set(null); this.state.setSelectionState('none'); }
   }
 
   deleteSelected(): void {
@@ -1283,11 +1633,144 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     this.floorPlan.windows.update(ws => ws.filter(w => w.id !== id));
     this.floorPlan.measures.update(ms => ms.filter(m => m.id !== id));
     this.floorPlan.arcs.update(as => as.filter(a => a.id !== id));
+    this.floorPlan.stairs.update(ss => ss.filter(s => s.id !== id));
+    this.floorPlan.texts.update(ts => ts.filter(t => t.id !== id));
+    this.floorPlan.shapes.update(ss => ss.filter(s => s.id !== id));
     this.history.push('Delete element');
-    this.selectedId = null;
-    this.selectedType = null;
+    this.selectedId = null; this.selectedType = null;
     this.floorPlan.clearSelection();
     this.state.setSelectionState('none');
+  }
+
+  // ─── New tool helpers ────────────────────────────────────────────────────────
+
+  commitTextEdit(): void {
+    const pos = this.textEditPos();
+    const val = this.textEditValue().trim();
+    if (!pos || !val) { this.textEditPos.set(null); return; }
+    this.floorPlan.snapshot();
+    this.floorPlan.texts.update(ts => [...ts, { id: uid(), pos, text: val, fontSize: 14, angle: 0, color: '#374151', bold: false }]);
+    this.history.push('Add text');
+    this.textEditPos.set(null); this.textEditValue.set('');
+  }
+
+  duplicateSelected(): void {
+    if (!this.selectedId) return;
+    const id = this.selectedId; const off = 20;
+    this.floorPlan.snapshot();
+    const w = this.floorPlan.walls().find(x => x.id === id);
+    if (w) this.floorPlan.walls.update(ws => [...ws, { ...w, id: uid(), start: { x: w.start.x + off, y: w.start.y + off }, end: { x: w.end.x + off, y: w.end.y + off } }]);
+    const d = this.floorPlan.doors().find(x => x.id === id);
+    if (d) this.floorPlan.doors.update(ds => [...ds, { ...d, id: uid(), pos: { x: d.pos.x + off, y: d.pos.y + off } }]);
+    const win = this.floorPlan.windows().find(x => x.id === id);
+    if (win) this.floorPlan.windows.update(ws => [...ws, { ...win, id: uid(), pos: { x: win.pos.x + off, y: win.pos.y + off } }]);
+    const st = this.floorPlan.stairs().find(x => x.id === id);
+    if (st) this.floorPlan.stairs.update(ss => [...ss, { ...st, id: uid(), start: { x: st.start.x + off, y: st.start.y + off }, end: { x: st.end.x + off, y: st.end.y + off } }]);
+    const tx = this.floorPlan.texts().find(x => x.id === id);
+    if (tx) this.floorPlan.texts.update(ts => [...ts, { ...tx, id: uid(), pos: { x: tx.pos.x + off, y: tx.pos.y + off } }]);
+    const sh = this.floorPlan.shapes().find(x => x.id === id);
+    if (sh) this.floorPlan.shapes.update(ss => [...ss, { ...sh, id: uid(), points: sh.points.map(p => ({ x: p.x + off, y: p.y + off })) }]);
+    this.history.push('Duplicate');
+  }
+
+  splitWallAt(pt: Pt): void {
+    let best: { wall: FPWall; proj: Pt; d: number } | null = null;
+    for (const w of this.floorPlan.walls()) {
+      const dx = w.end.x - w.start.x, dy = w.end.y - w.start.y;
+      const len2 = dx * dx + dy * dy;
+      if (len2 < 1) continue;
+      const t = Math.max(0.1, Math.min(0.9, ((pt.x - w.start.x) * dx + (pt.y - w.start.y) * dy) / len2));
+      const proj = { x: w.start.x + t * dx, y: w.start.y + t * dy };
+      const d = Math.hypot(pt.x - proj.x, pt.y - proj.y);
+      if (!best || d < best.d) best = { wall: w, proj, d };
+    }
+    if (!best || best.d > 30 / this.zoom()) return;
+    const { wall, proj } = best;
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => [
+      ...ws.filter(w => w.id !== wall.id),
+      { id: uid(), start: wall.start, end: proj, meta: { ...wall.meta } },
+      { id: uid(), start: proj, end: wall.end, meta: { ...wall.meta } },
+    ]);
+    this.history.push('Split wall');
+  }
+
+  commitBoxSelect(): void {
+    const rect = this.boxSelectRect();
+    if (!rect) return;
+    const x1 = (rect.x - this.panX()) / this.zoom();
+    const y1 = (rect.y - this.panY()) / this.zoom();
+    const x2 = x1 + rect.w / this.zoom();
+    const y2 = y1 + rect.h / this.zoom();
+    const inRect = (p: Pt) => p.x >= x1 && p.x <= x2 && p.y >= y1 && p.y <= y2;
+    const ids = new Set<string>();
+    this.floorPlan.walls().forEach(w => { if (inRect(w.start) || inRect(w.end)) ids.add(w.id); });
+    this.floorPlan.doors().forEach(d => { if (inRect(d.pos)) ids.add(d.id); });
+    this.floorPlan.windows().forEach(w => { if (inRect(w.pos)) ids.add(w.id); });
+    this.floorPlan.stairs().forEach(s => { if (inRect(s.start) || inRect(s.end)) ids.add(s.id); });
+    this.floorPlan.texts().forEach(t => { if (inRect(t.pos)) ids.add(t.id); });
+    if (ids.size > 0) { this.floorPlan.selectedIds.set(ids); this.state.setSelectionState('wall'); }
+  }
+
+  mirrorSelected(axis: 'h' | 'v'): void {
+    if (!this.selectedId) return;
+    const id = this.selectedId;
+    const w = this.floorPlan.walls().find(x => x.id === id);
+    if (!w) return;
+    const cx = (w.start.x + w.end.x) / 2, cy = (w.start.y + w.end.y) / 2;
+    const mir = (p: Pt): Pt => axis === 'h' ? { x: 2 * cx - p.x, y: p.y } : { x: p.x, y: 2 * cy - p.y };
+    this.floorPlan.snapshot();
+    this.floorPlan.walls.update(ws => ws.map(wall => wall.id !== id ? wall : { ...wall, start: mir(wall.start), end: mir(wall.end) }));
+    this.history.push('Mirror wall');
+  }
+
+  multiSelectCount(): number {
+    return this.floorPlan.selectedIds().size || (this.selectedId ? 1 : 0);
+  }
+
+  shapePathD(sh: FPShape): string {
+    const pts = sh.points;
+    if (!pts.length) return '';
+    if (sh.type === 'line' && pts.length >= 2) return `M${pts[0].x},${pts[0].y} L${pts[1].x},${pts[1].y}`;
+    const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+    return sh.closed ? d + ' Z' : d;
+  }
+
+  circleRadius(sh: FPShape): number {
+    if (sh.points.length < 2) return 0;
+    return Math.hypot(sh.points[1].x - sh.points[0].x, sh.points[1].y - sh.points[0].y);
+  }
+
+  circleRadiusPt(a: Pt, b: Pt): number { return Math.hypot(b.x - a.x, b.y - a.y); }
+
+  stairSVG(s: FPStair): string {
+    const steps = s.meta?.steps ?? 8;
+    const dx = s.end.x - s.start.x, dy = s.end.y - s.start.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len, ny = dx / len;
+    const hw = ((s.meta?.width ?? 900) / 1000) * PIXELS_PER_METER / 2;
+    let d = '';
+    // Step lines
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const cx = s.start.x + dx * t, cy = s.start.y + dy * t;
+      d += `M${(cx + nx * hw).toFixed(1)},${(cy + ny * hw).toFixed(1)} L${(cx - nx * hw).toFixed(1)},${(cy - ny * hw).toFixed(1)} `;
+    }
+    // Side rails
+    d += `M${(s.start.x + nx * hw).toFixed(1)},${(s.start.y + ny * hw).toFixed(1)} L${(s.end.x + nx * hw).toFixed(1)},${(s.end.y + ny * hw).toFixed(1)} `;
+    d += `M${(s.start.x - nx * hw).toFixed(1)},${(s.start.y - ny * hw).toFixed(1)} L${(s.end.x - nx * hw).toFixed(1)},${(s.end.y - ny * hw).toFixed(1)}`;
+    return d;
+  }
+
+  polylinePreviewD(): string {
+    const cur = this.drawCurrent();
+    const pts = [...this.polyPoints, ...(cur ? [cur] : [])];
+    if (pts.length < 2) return '';
+    return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  }
+
+  rectPreviewAttrs(a: Pt, b: Pt): { x: number; y: number; w: number; h: number } {
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
   }
 
   // ─── Zoom controls ───────────────────────────────────────────────────────────
