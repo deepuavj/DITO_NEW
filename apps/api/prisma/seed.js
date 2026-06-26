@@ -263,18 +263,23 @@ const DEFAULT_ASSETS = [
 // ─── Main seed ────────────────────────────────────────────────────────────────
 
 async function main() {
-  // 1. Admin user
-  const adminEmail = 'admin@dito.com';
-  const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-  if (!existingAdmin) {
-    const passwordHash = await bcrypt.hash('admin@123', 12);
-    const admin = await prisma.user.create({
-      data: { name: 'admin', email: adminEmail, passwordHash, role: 'ADMIN' },
-      select: { id: true, email: true, name: true, role: true },
-    });
-    console.log('✅ Admin user created:', admin);
-  } else {
-    console.log('ℹ️  Admin user already exists — skipping.');
+  // 1. Users
+  const users = [
+    { name: 'Admin',    email: 'admin@dito.com', password: 'Admin@123', role: 'ADMIN' },
+    { name: 'Designer', email: 'user@dito.com',  password: 'User@123',  role: 'DESIGNER' },
+  ];
+  for (const u of users) {
+    const existing = await prisma.user.findUnique({ where: { email: u.email } });
+    if (!existing) {
+      const passwordHash = await bcrypt.hash(u.password, 12);
+      const created = await prisma.user.create({
+        data: { name: u.name, email: u.email, passwordHash, role: u.role },
+        select: { id: true, email: true, name: true, role: true },
+      });
+      console.log('✅ User created:', created);
+    } else {
+      console.log('ℹ️  User already exists — skipping:', u.email);
+    }
   }
 
   // 2. Categories
