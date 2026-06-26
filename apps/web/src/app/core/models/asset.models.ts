@@ -1,6 +1,11 @@
-export type AssetCategory =
-  | 'SOFA' | 'CHAIR' | 'TABLE' | 'BED' | 'STORAGE'
-  | 'LIGHTING' | 'DECOR' | 'WALL' | 'FLOOR' | 'CEILING' | 'ROOM' | 'OTHER';
+export interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+}
 
 export interface EditableZone {
   id: string;
@@ -26,19 +31,31 @@ export interface SnapRule {
   gridSize?: number;
 }
 
+// Flexible metadata — matches the examples provided
 export interface AssetMetadata {
+  type?: string;                // 'sofa' | 'chair' | 'bed' | 'wardrobe' | ...
+  style?: string;
+  dimensions?: { width: number; height: number; depth: number };
+  material?: Record<string, string>;
+  colors?: Record<string, string>;
+  appearance?: Record<string, string>;
+  finish?: string;
+  doors?: number;
+  doorType?: string;
+  seats?: number;
+  size?: string;
+  // DITO engine fields
   editableZones?: EditableZone[];
   properties?: PropertyDef[];
   snapRules?: SnapRule;
   aiTags?: string[];
-  dimensions?: { width: number; height: number; depth: number };
   [key: string]: unknown;
 }
 
 export interface Asset {
   id: string;
   name: string;
-  category: AssetCategory;
+  category: string;          // free-text matching Category.name
   glbUrl: string;
   thumbnailUrl?: string;
   metadata: AssetMetadata;

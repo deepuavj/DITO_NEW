@@ -1,7 +1,7 @@
 import { prisma } from '../../config/prisma';
 import { AppError } from '../../middleware/error.middleware';
 import type { CreateAssetDto, UpdateAssetDto, AssetQuery } from './asset.validator';
-import type { AssetCategory, Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 type JsonValue = Prisma.InputJsonValue;
 
@@ -12,13 +12,9 @@ export const assetService = {
 
     const where: Prisma.AssetWhereInput = {
       isPublic: true,
-      ...(category && { category: category as AssetCategory }),
-      ...(search && {
-        name: { contains: search, mode: 'insensitive' },
-      }),
-      ...(tags && {
-        tags: { hasSome: tags.split(',').map((t) => t.trim()) },
-      }),
+      ...(category && { category }),
+      ...(search && { name: { contains: search, mode: 'insensitive' } }),
+      ...(tags && { tags: { hasSome: tags.split(',').map(t => t.trim()) } }),
     };
 
     const [assets, total] = await prisma.$transaction([
@@ -26,6 +22,21 @@ export const assetService = {
       prisma.asset.count({ where }),
     ]);
 
+    return { assets, total };
+  },
+
+  async listAll(query: AssetQuery) {
+    // Admin view — includes non-public
+    const { page, limit, category, search } = query;
+    const skip = (page - 1) * limit;
+    const where: Prisma.AssetWhereInput = {
+      ...(category && { category }),
+      ...(search && { name: { contains: search, mode: 'insensitive' } }),
+    };
+    const [assets, total] = await prisma.$transaction([
+      prisma.asset.findMany({ where, skip, take: limit, orderBy: { createdAt: 'desc' } }),
+      prisma.asset.count({ where }),
+    ]);
     return { assets, total };
   },
 

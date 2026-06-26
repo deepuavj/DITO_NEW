@@ -391,9 +391,27 @@ export class RendererService implements OnDestroy {
       return mesh;
     };
 
-    // ── Sofa (s1=3-seater, s3=loveseat) ──────────────────────────────────────
-    if (assetId === 's1' || assetId === 's3') {
-      const W = assetId === 's1' ? 2.0 : 1.4;
+    // Resolve mesh type: prefer metadata.type string, fall back to legacy ID matching
+    const meta = this.metadataEngine.getMetadata(assetId);
+    const mtype = (meta?.['type'] as string | undefined) ?? '';
+
+    const isSofa      = mtype === 'sofa'         || assetId === 's1' || assetId === 's3';
+    const isLoveseat  = mtype === 'loveseat';
+    const isChair     = mtype === 'chair'         || assetId === 's2';
+    const isOttoman   = mtype === 'ottoman'       || assetId === 's4';
+    const isCoffee    = mtype === 'coffee_table'  || assetId === 't1';
+    const isDining    = mtype === 'dining_table'  || assetId === 't2';
+    const isSide      = mtype === 'side_table'    || assetId === 't3';
+    const isBed       = mtype === 'bed'           || assetId === 'b1' || assetId === 'b2';
+    const isWardrobe  = mtype === 'wardrobe'      || assetId === 'st1';
+    const isBookshelf = mtype === 'bookshelf'     || assetId === 'st2';
+    const isFloorLamp = mtype === 'floor_lamp'    || assetId === 'l1';
+    const isPendant   = mtype === 'pendant_light' || assetId === 'l2';
+
+    // ── Sofa / Loveseat ───────────────────────────────────────────────────────
+    if (isSofa || isLoveseat) {
+      const dims = meta?.['dimensions'] as { width?: number } | undefined;
+      const W = dims?.width ?? (isLoveseat ? 1.4 : (assetId === 's3' ? 1.4 : 2.0));
       const fabric = mat(0x8B6F4E, 0.9);
       const legM   = mat(0x3B2A1A, 0.8);
       g.add(
@@ -408,8 +426,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Accent Chair (s2) ─────────────────────────────────────────────────────
-    else if (assetId === 's2') {
+    // ── Accent Chair ─────────────────────────────────────────────────────────
+    else if (isChair) {
       const fab = mat(0x6B4C2A, 0.85);
       const leg = mat(0x2A1A0A, 0.8);
       g.add(
@@ -424,8 +442,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Ottoman (s4) ──────────────────────────────────────────────────────────
-    else if (assetId === 's4') {
+    // ── Ottoman ──────────────────────────────────────────────────────────────
+    else if (isOttoman) {
       const fab = mat(0x7A5C3A, 0.9);
       const leg = mat(0x3B2010, 0.8);
       g.add(
@@ -440,8 +458,8 @@ export class RendererService implements OnDestroy {
       (g.children[0] as THREE.Mesh).receiveShadow = true;
     }
 
-    // ── Coffee Table (t1) ─────────────────────────────────────────────────────
-    else if (assetId === 't1') {
+    // ── Coffee Table ─────────────────────────────────────────────────────────
+    else if (isCoffee) {
       const top = mat(0x5C3D1E, 0.6); const leg = mat(0x3B2010, 0.8);
       g.add(
         box(1.1, 0.05, 0.55, top, 0, 0.44, 0),
@@ -452,8 +470,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Dining Table (t2) ─────────────────────────────────────────────────────
-    else if (assetId === 't2') {
+    // ── Dining Table ─────────────────────────────────────────────────────────
+    else if (isDining) {
       const top = mat(0x6B4A2A, 0.55); const leg = mat(0x3D2510, 0.75);
       g.add(
         box(1.8, 0.06, 0.9, top, 0, 0.74, 0),
@@ -464,8 +482,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Side Table (t3) ───────────────────────────────────────────────────────
-    else if (assetId === 't3') {
+    // ── Side Table ───────────────────────────────────────────────────────────
+    else if (isSide) {
       const top = mat(0x7A5A35, 0.6); const leg = mat(0x3B2510, 0.8);
       g.add(
         box(0.5, 0.04, 0.5, top, 0, 0.56, 0),
@@ -476,9 +494,10 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Queen Bed (b1) & King Bed (b2) ───────────────────────────────────────
-    else if (assetId === 'b1' || assetId === 'b2') {
-      const W = assetId === 'b2' ? 1.8 : 1.5;
+    // ── Bed ───────────────────────────────────────────────────────────────────
+    else if (isBed) {
+      const dims2 = meta?.['dimensions'] as { width?: number } | undefined;
+      const W = dims2?.width ?? ((meta?.['size'] as string | undefined) === 'King' ? 1.8 : 1.5);
       const frame = mat(0x4A3520, 0.8); const mattress = mat(0xE8DDD0, 0.95);
       const pillow = mat(0xFAF7F2, 0.95); const blanket = mat(0x6B7FAA, 0.85);
       g.add(
@@ -491,8 +510,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Wardrobe (st1) ───────────────────────────────────────────────────────
-    else if (assetId === 'st1') {
+    // ── Wardrobe ─────────────────────────────────────────────────────────────
+    else if (isWardrobe) {
       const wood = mat(0x6B4E2A, 0.7); const panel = mat(0x7A5A35, 0.65);
       const handle = mat(0xBB9960, 0.3, 0.6);
       g.add(
@@ -504,8 +523,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Bookshelf (st2) ──────────────────────────────────────────────────────
-    else if (assetId === 'st2') {
+    // ── Bookshelf ────────────────────────────────────────────────────────────
+    else if (isBookshelf) {
       const wood = mat(0x7A5A35, 0.7); const book1 = mat(0xB34040, 0.9);
       const book2 = mat(0x3A6B8A, 0.9); const book3 = mat(0x4A8A4A, 0.9);
       g.add(
@@ -523,8 +542,8 @@ export class RendererService implements OnDestroy {
       );
     }
 
-    // ── Floor Lamp (l1) ──────────────────────────────────────────────────────
-    else if (assetId === 'l1') {
+    // ── Floor Lamp ───────────────────────────────────────────────────────────
+    else if (isFloorLamp) {
       const metal = mat(0x888880, 0.3, 0.8); const shade = mat(0xF0E6C8, 0.7);
       const base  = mat(0x555550, 0.4, 0.6);
       g.add(
@@ -539,8 +558,8 @@ export class RendererService implements OnDestroy {
       (g.children[2] as THREE.Mesh).receiveShadow = true;
     }
 
-    // ── Pendant Light (l2) ───────────────────────────────────────────────────
-    else if (assetId === 'l2') {
+    // ── Pendant Light ────────────────────────────────────────────────────────
+    else if (isPendant) {
       const metal = mat(0x888880, 0.2, 0.9); const shade = mat(0xF5EDD5, 0.6);
       g.add(
         cyl(0.006, 1.6, metal, 0, 1.7, 0, 6),               // wire

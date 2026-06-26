@@ -8,6 +8,7 @@ import { config } from './config/index';
 import { errorMiddleware } from './middleware/error.middleware';
 import authRoutes from './modules/auth/auth.routes';
 import assetRoutes from './modules/assets/asset.routes';
+import categoryRoutes from './modules/categories/category.routes';
 import sceneRoutes from './modules/scenes/scene.routes';
 
 const app = express();
@@ -53,6 +54,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/assets', assetRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/scenes', sceneRoutes);
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────

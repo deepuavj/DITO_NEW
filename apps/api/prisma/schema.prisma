@@ -15,21 +15,6 @@ enum Role {
   ENTERPRISE
 }
 
-enum AssetCategory {
-  SOFA
-  CHAIR
-  TABLE
-  BED
-  STORAGE
-  LIGHTING
-  DECOR
-  WALL
-  FLOOR
-  CEILING
-  ROOM
-  OTHER
-}
-
 enum MaterialType {
   FABRIC
   LEATHER
@@ -47,6 +32,19 @@ enum RenderJobStatus {
   PROCESSING
   COMPLETED
   FAILED
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  icon      String   @default("📦")
+  color     String   @default("#6B7280")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("categories")
 }
 
 // ─── Users & Organisations ────────────────────────────────────────────────────
@@ -85,17 +83,16 @@ model User {
 // ─── Assets ───────────────────────────────────────────────────────────────────
 
 model Asset {
-  id           String        @id @default(uuid())
+  id           String   @id @default(uuid())
   name         String
-  category     AssetCategory
-  glbUrl       String        @map("glb_url")
-  thumbnailUrl String?       @map("thumbnail_url")
-  // Full metadata: editableZones, properties, snapRules, aiTags, etc.
-  metadata     Json          @default("{}")
-  tags         String[]      @default([])
-  isPublic     Boolean       @default(true) @map("is_public")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  category     String   // free-text; matches Category.name
+  glbUrl       String   @default("") @map("glb_url")
+  thumbnailUrl String?  @map("thumbnail_url")
+  metadata     Json     @default("{}")
+  tags         String[] @default([])
+  isPublic     Boolean  @default(true) @map("is_public")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("assets")
 }
@@ -107,7 +104,6 @@ model Material {
   name         String
   type         MaterialType
   thumbnailUrl String?      @map("thumbnail_url")
-  // PBR map URLs, tiling, roughness, metalness, etc.
   metadata     Json         @default("{}")
   tags         String[]     @default([])
   isPublic     Boolean      @default(true) @map("is_public")
@@ -124,7 +120,6 @@ model Scene {
   userId      String   @map("user_id")
   name        String
   description String?
-  // Full scene graph serialised as metadata JSON
   sceneData   Json     @default("{}") @map("scene_data")
   thumbnail   String?
   isPublic    Boolean  @default(false) @map("is_public")

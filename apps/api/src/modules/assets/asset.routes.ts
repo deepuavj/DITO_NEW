@@ -11,7 +11,11 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const query = assetQuerySchema.parse(req.query);
-    const { assets, total } = await assetService.list(query);
+    // Admin requests (with auth token) see all assets; public sees only isPublic
+    const isAdmin = (req as any).user?.role === 'ADMIN';
+    const { assets, total } = isAdmin
+      ? await assetService.listAll(query)
+      : await assetService.list(query);
     sendPaginated(res, assets, total, query.page, query.limit);
   }),
 );
