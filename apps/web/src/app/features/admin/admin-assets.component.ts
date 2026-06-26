@@ -389,22 +389,22 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
                     }
                   </td>
                   <td>
-                    @if (a.metadata?.['type']) {
+                    @if (a.metadata['type']) {
                       <span class="badge badge-blue">{{ a.metadata['type'] }}</span>
                     } @else { <span style="color:#D1D5DB">—</span> }
                   </td>
                   <td style="font-size:11px;color:#6B7280;white-space:nowrap">
-                    @let dim = a.metadata?.['dimensions'];
+                    @let dim = a.metadata['dimensions'];
                     @if (dim) { {{ dim['width'] }} × {{ dim['depth'] }} × {{ dim['height'] }} }
                     @else { <span style="color:#D1D5DB">—</span> }
                   </td>
                   <td>
                     <div style="display:flex;flex-wrap:wrap;gap:3px">
-                      @for (t of (a.tags ?? []).slice(0,3); track t) {
+                      @for (t of a.tags.slice(0,3); track t) {
                         <span class="badge badge-gray">{{ t }}</span>
                       }
-                      @if ((a.tags ?? []).length > 3) {
-                        <span class="badge badge-gray">+{{ (a.tags ?? []).length - 3 }}</span>
+                      @if (a.tags.length > 3) {
+                        <span class="badge badge-gray">+{{ a.tags.length - 3 }}</span>
                       }
                     </div>
                   </td>
@@ -492,7 +492,7 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
                   </td>
                   <td style="color:#6B7280;font-size:13px">{{ c.sortOrder }}</td>
                   <td>
-                    <span class="badge badge-blue">{{ assetCountMap()[c.name] ?? 0 }}</span>
+                    <span class="badge badge-blue">{{ assetCountMap()[c.name] || 0 }}</span>
                   </td>
                   <td style="font-size:11px;color:#9CA3AF;white-space:nowrap">{{ c.createdAt | date:'dd MMM yyyy' }}</td>
                   <td style="white-space:nowrap">
