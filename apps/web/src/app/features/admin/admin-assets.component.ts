@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -9,14 +9,14 @@ import type { Asset, Category } from '../../core/models/asset.models';
 type SnapSurface = 'floor' | 'wall' | 'ceiling' | 'surface' | '';
 
 interface AssetForm {
-  name: string; category: string; glbUrl: string;
+  name: string; category: string; glbUrl: string; glbFilename: string;
   thumbnailUrl: string; tags: string; isPublic: boolean;
   snapTo: SnapSurface; metadataRaw: string;
 }
 interface CatForm { name: string; icon: string; color: string; }
 
 function emptyAssetForm(defaultCat = ''): AssetForm {
-  return { name: '', category: defaultCat, glbUrl: '', thumbnailUrl: '', tags: '', isPublic: true, snapTo: 'floor', metadataRaw: '{}' };
+  return { name: '', category: defaultCat, glbUrl: '', glbFilename: '', thumbnailUrl: '', tags: '', isPublic: true, snapTo: 'floor', metadataRaw: '{}' };
 }
 function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7280' }; }
 
@@ -98,6 +98,19 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     .cat-color-row { display:flex; gap:10px; align-items:center; }
     .cat-swatch { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
     .sort-order { width:54px; }
+    /* GLB upload */
+    .glb-drop { border:2px dashed #E5E7EB; border-radius:10px; padding:18px; text-align:center; cursor:pointer; transition:all 150ms; background:#FAFAFA; }
+    .glb-drop:hover,.glb-drop.over { border-color:#2563EB; background:#EFF6FF; }
+    .glb-drop.has-file { border-color:#10B981; background:#F0FDF4; }
+    .glb-drop-icon { font-size:28px; margin-bottom:6px; }
+    .glb-drop-text { font-size:13px; font-weight:600; color:#374151; }
+    .glb-drop-sub { font-size:11px; color:#9CA3AF; margin-top:3px; }
+    .glb-file-row { display:flex; align-items:center; gap:10px; padding:10px 12px; background:#F0FDF4; border:1.5px solid #10B981; border-radius:9px; }
+    .glb-file-icon { font-size:20px; }
+    .glb-file-name { flex:1; font-size:12px; font-weight:600; color:#065F46; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .glb-file-remove { background:none; border:none; color:#EF4444; cursor:pointer; font-size:16px; padding:0; }
+    .upload-progress { height:4px; background:#E5E7EB; border-radius:2px; overflow:hidden; margin-top:8px; }
+    .upload-progress-bar { height:100%; background:#2563EB; border-radius:2px; transition:width 200ms; }
   `],
   template: `
     <!-- Asset Modal -->
@@ -122,8 +135,28 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
             </select>
           </div>
           <div class="fg">
-            <label class="fl">GLB Model URL <span style="color:#9CA3AF;font-weight:400">(leave blank for procedural mesh)</span></label>
-            <input class="fi" [(ngModel)]="assetForm.glbUrl" placeholder="https://cdn.example.com/model.glb" />
+            <label class="fl">3D Model (GLB / GLTF) <span style="color:#9CA3AF;font-weight:400">— leave empty for procedural mesh</span></label>
+            @if (assetForm.glbUrl) {
+              <div class="glb-file-row">
+                <span class="glb-file-icon">📦</span>
+                <span class="glb-file-name" [title]="assetForm.glbUrl">{{ assetForm.glbFilename || assetForm.glbUrl }}</span>
+                <button class="glb-file-remove" title="Remove model" (click)="removeGlbFile()" [disabled]="glbUploading()">✕</button>
+              </div>
+            } @else {
+              <div class="glb-drop" [class.over]="glbDragOver" (click)="glbFileInput.click()"
+                (dragover)="$event.preventDefault(); glbDragOver=true"
+                (dragleave)="glbDragOver=false"
+                (drop)="onGlbDrop($event)">
+                <div class="glb-drop-icon">{{ glbUploading() ? '⏳' : '🗂️' }}</div>
+                <div class="glb-drop-text">{{ glbUploading() ? 'Uploading…' : 'Click or drag .glb / .gltf here' }}</div>
+                <div class="glb-drop-sub">Max {{ maxMB }}MB</div>
+                @if (glbUploading()) {
+                  <div class="upload-progress"><div class="upload-progress-bar" [style.width]="glbProgress() + '%'"></div></div>
+                }
+              </div>
+            }
+            <input #glbFileInput type="file" accept=".glb,.gltf" style="display:none" (change)="onGlbFileChange($event)" />
+            @if (glbError()) { <div class="error-msg">{{ glbError() }}</div> }
           </div>
           <div class="fg">
             <label class="fl">Thumbnail URL</label>
@@ -623,6 +656,63 @@ export class AdminAssetsComponent implements OnInit {
     catch { this.metaJsonError.set('Invalid JSON — check syntax.'); }
   }
 
+  // ── GLB upload ────────────────────────────────────────────────────────────────
+  glbUploading = signal(false);
+  glbProgress  = signal(0);
+  glbError     = signal('');
+  glbDragOver  = false;
+  readonly maxMB = Math.round((100 * 1024 * 1024) / (1024 * 1024)); // from config default 100MB
+
+  onGlbFileChange(e: Event): void {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    (e.target as HTMLInputElement).value = '';
+    if (file) this.uploadGlbFile(file);
+  }
+
+  onGlbDrop(e: DragEvent): void {
+    e.preventDefault(); this.glbDragOver = false;
+    const file = e.dataTransfer?.files[0];
+    if (file) this.uploadGlbFile(file);
+  }
+
+  private uploadGlbFile(file: File): void {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'glb' && ext !== 'gltf') {
+      this.glbError.set('Only .glb and .gltf files are supported.'); return;
+    }
+    this.glbUploading.set(true); this.glbError.set(''); this.glbProgress.set(10);
+
+    // Animate progress while uploading
+    const tick = setInterval(() => this.glbProgress.update(p => Math.min(p + 8, 85)), 200);
+
+    this.assetSvc.uploadGlb(file).subscribe({
+      next: result => {
+        clearInterval(tick);
+        this.glbProgress.set(100);
+        this.assetForm.glbUrl = result.url;
+        this.assetForm.glbFilename = file.name;
+        setTimeout(() => { this.glbUploading.set(false); this.glbProgress.set(0); }, 400);
+      },
+      error: (err: any) => {
+        clearInterval(tick);
+        this.glbUploading.set(false); this.glbProgress.set(0);
+        this.glbError.set(err?.error?.message ?? 'Upload failed — check file size and format.');
+      },
+    });
+  }
+
+  removeGlbFile(): void {
+    // Optionally delete from server if it was just uploaded (has /uploads/ path)
+    const url = this.assetForm.glbUrl;
+    if (url?.includes('/uploads/')) {
+      const filename = url.split('/').pop()!;
+      this.assetSvc.deleteGlbFile(filename).subscribe({ error: () => {} });
+    }
+    this.assetForm.glbUrl = '';
+    this.assetForm.glbFilename = '';
+    this.glbError.set('');
+  }
+
   readonly snapOptions: { value: SnapSurface; label: string; icon: string }[] = [
     { value: 'floor',   label: 'Floor',   icon: '⬇️' },
     { value: 'wall',    label: 'Wall',    icon: '↔️' },
@@ -635,21 +725,23 @@ export class AdminAssetsComponent implements OnInit {
   openAddAsset() {
     this.editAssetId.set(null);
     this.assetForm = emptyAssetForm(this.filterCategory || (this.categories()[0]?.name ?? ''));
-    this.modalError.set(''); this.metaJsonError.set('');
+    this.modalError.set(''); this.metaJsonError.set(''); this.glbError.set('');
     this.showAssetModal.set(true);
   }
 
   openEditAsset(a: Asset) {
     this.editAssetId.set(a.id);
     const existingSnap = (a.metadata?.['snapRules'] as any)?.surface as SnapSurface | undefined;
+    const glbUrl = a.glbUrl ?? '';
     this.assetForm = {
-      name: a.name, category: a.category, glbUrl: a.glbUrl ?? '',
+      name: a.name, category: a.category, glbUrl,
+      glbFilename: glbUrl ? glbUrl.split('/').pop()! : '',
       thumbnailUrl: a.thumbnailUrl ?? '', tags: (a.tags ?? []).join(', '),
       isPublic: a.isPublic,
       snapTo: existingSnap ?? 'floor',
       metadataRaw: JSON.stringify(a.metadata ?? {}, null, 2),
     };
-    this.modalError.set(''); this.metaJsonError.set('');
+    this.modalError.set(''); this.metaJsonError.set(''); this.glbError.set('');
     this.showAssetModal.set(true);
   }
 

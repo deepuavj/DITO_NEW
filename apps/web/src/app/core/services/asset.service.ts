@@ -1,7 +1,9 @@
 import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { map } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import type { Asset, Category } from '../models/asset.models';
+import { environment } from '../../../environments/environment';
 
 export interface AssetListParams {
   page?: number;
@@ -32,7 +34,9 @@ export interface CreateCategoryDto {
 
 @Injectable({ providedIn: 'root' })
 export class AssetService {
-  private readonly api = inject(ApiService);
+  private readonly api  = inject(ApiService);
+  private readonly http = inject(HttpClient);
+  private readonly base = environment.apiUrl;
 
   // ── Assets ──────────────────────────────────────────────────────────────────
 
@@ -72,5 +76,20 @@ export class AssetService {
 
   deleteCategory(id: string) {
     return this.api.delete<null>(`/categories/${id}`);
+  }
+
+  // ── GLB Upload ──────────────────────────────────────────────────────────────
+
+  uploadGlb(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<{ success: boolean; data?: { url: string; filename: string; size: number } }>(
+      `${this.base}/uploads/glb`,
+      form,
+    ).pipe(map(r => r.data!));
+  }
+
+  deleteGlbFile(filename: string) {
+    return this.http.delete(`${this.base}/uploads/glb/${filename}`);
   }
 }

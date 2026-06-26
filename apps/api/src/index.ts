@@ -1,3 +1,5 @@
+import path from 'path';
+import fs from 'fs';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -10,6 +12,7 @@ import authRoutes from './modules/auth/auth.routes';
 import assetRoutes from './modules/assets/asset.routes';
 import categoryRoutes from './modules/categories/category.routes';
 import sceneRoutes from './modules/scenes/scene.routes';
+import uploadRoutes from './modules/uploads/upload.routes';
 
 const app = express();
 
@@ -44,6 +47,12 @@ app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// ─── Static File Serving (uploaded GLBs) ─────────────────────────────────────
+
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR));
+
 // ─── Health Check ─────────────────────────────────────────────────────────────
 
 app.get('/health', (_req, res) => {
@@ -56,6 +65,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/scenes', sceneRoutes);
+app.use('/api/uploads', uploadRoutes);
 
 // ─── 404 ──────────────────────────────────────────────────────────────────────
 
