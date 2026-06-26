@@ -180,24 +180,23 @@ export class RendererService implements OnDestroy {
         shape.closePath();
 
         let floor = this.wallMeshMap.get(key);
-        // Rebuild geometry whenever polygon may have changed (dispose old)
-        if (floor) { floor.geometry.dispose(); floor.geometry = new THREE.ShapeGeometry(shape); }
-        else {
+        if (!floor) {
           const mat = new THREE.MeshStandardMaterial({
             color: room.floorColor, roughness: 0.95, side: THREE.DoubleSide,
           });
           floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
           floor.rotation.x = -Math.PI / 2;
-          floor.position.y = 0.001; // tiny offset above ground plane
+          floor.position.y = 0; // at world floor level (ground is at -0.05)
           floor.receiveShadow = true;
           this.threeScene.add(floor);
           this.wallMeshMap.set(key, floor);
+        } else {
+          // Rebuild geometry (polygon may have changed)
+          floor.geometry.dispose();
+          floor.geometry = new THREE.ShapeGeometry(shape);
         }
         // Update colour in case user changed it
         (floor.material as THREE.MeshStandardMaterial).color.set(room.floorColor);
-        // Rebuild geometry each sync (polygon may change) — shape already set above
-        if (floor.geometry) floor.geometry.dispose();
-        floor.geometry = new THREE.ShapeGeometry(shape);
       }
     } else if (walls.length >= 2) {
       // Fallback: bounding box floor when no rooms detected yet
@@ -221,7 +220,7 @@ export class RendererService implements OnDestroy {
         this.wallMeshMap.set(key, floor);
       }
       floor.scale.set(floorW, floorD, 1);
-      floor.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
+      floor.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2); // Y=0, ground is at -0.05
       roomFloorIds.add(key);
     }
 
@@ -839,18 +838,19 @@ export class RendererService implements OnDestroy {
     skyTex.mapping = THREE.EquirectangularReflectionMapping;
     this.threeScene.background = skyTex;
 
-    // Infinite ground plane (1km × 1km)
+    // Infinite ground plane — sits below room floors to avoid z-fighting
     const groundGeo = new THREE.PlaneGeometry(1000, 1000);
     const groundMat = new THREE.MeshStandardMaterial({ color: '#8A9E7A', roughness: 1.0 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.05; // below room floor meshes (Y=0) to prevent z-fighting
     ground.receiveShadow = true;
     this.threeScene.add(ground);
     this.threeScene.fog = new THREE.Fog(0xD4E9F7, 30, 150);
 
-    // Infinite-looking grid — 500×500m at 1m spacing, centered at world origin
+    // Infinite-looking grid — sits just above ground plane
     this.gridHelper = new THREE.GridHelper(500, 500, 0x888888, 0xCCCCCC);
-    this.gridHelper.position.set(0, 0.01, 0);
+    this.gridHelper.position.set(0, -0.04, 0);
     // material can be Material | Material[] — handle both cases
     const mats = Array.isArray(this.gridHelper.material)
       ? this.gridHelper.material

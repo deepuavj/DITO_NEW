@@ -1,3 +1,7 @@
+import type { ProjectMetadata } from './project-metadata.models';
+
+export type { ProjectMetadata };
+
 export interface SceneObject {
   id: string;
   assetId: string;
@@ -24,12 +28,19 @@ export interface FloorPlanData {
   measures: import('./floor-plan.models').FPMeasure[];
 }
 
+/**
+ * Full scene data stored to DB.
+ * `metadata` carries the rich project metadata (2D/3D config, rooms, objects).
+ * Legacy fields kept for backward compatibility.
+ */
 export interface SceneData {
   room: RoomConfig;
   objects: SceneObject[];
   floorPlan?: FloorPlanData;
   camera?: { position: [number, number, number]; target: [number, number, number] };
   lighting?: { ambientIntensity: number; sunPosition: [number, number, number] };
+  /** Full structured metadata — use this for new saves */
+  metadata?: ProjectMetadata;
 }
 
 export interface Scene {

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { StudioStateService } from './services/studio-state.service';
 import { HistoryService } from './services/history.service';
+import { ProjectMetadataService } from './services/project-metadata.service';
 import { FloorPlanService } from './services/floor-plan.service';
 import { StudioCanvasComponent } from './components/canvas/studio-canvas.component';
 import { FurnitureLibraryComponent } from './components/assets-panel/assets-panel.component';
@@ -25,7 +26,7 @@ import type { Theme } from './services/studio-state.service';
     StudioToolbarComponent,
     StatusBarComponent,
   ],
-  providers: [StudioStateService, HistoryService],
+  providers: [StudioStateService, HistoryService, ProjectMetadataService],
   styles: [`
     .studio-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; outline: none; background: var(--canvas-bg); color: var(--fg); }
     .studio-root.dark {
