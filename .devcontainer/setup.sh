@@ -24,9 +24,6 @@ if [ -f apps/web/.env.example ] && [ ! -f apps/web/.env ]; then
 fi
 
 # Install dependencies
-echo "Installing root dependencies..."
-npm install 2>/dev/null || true
-
 echo "Installing API dependencies..."
 (cd apps/api && npm install)
 
@@ -35,18 +32,23 @@ echo "Installing web dependencies..."
 
 # Start docker services if Docker is available
 if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
-  echo "Starting Docker services (Postgres, Redis, MinIO)..."
-  docker compose up -d postgres redis minio 2>/dev/null || true
+  echo "Starting Docker services (Postgres, Redis)..."
+  docker compose up -d postgres redis
 
   echo "Waiting for Postgres to be ready..."
-  for i in $(seq 1 20); do
-    docker compose exec -T postgres pg_isready -U dito -d dito_db &>/dev/null && break
-    echo "  attempt $i/20..."
+  for i in $(seq 1 30); do
+    docker compose exec -T postgres pg_isready -U dito -d dito_db &>/dev/null && echo "Postgres ready!" && break
+    echo "  waiting... ($i/30)"
     sleep 2
   done
 
   echo "Running DB migrations..."
-  (cd apps/api && npx prisma migrate deploy 2>/dev/null || npx prisma db push 2>/dev/null) || true
+  (cd apps/api && npx prisma migrate deploy) || (cd apps/api && npx prisma db push) || true
+else
+  echo ""
+  echo "⚠️  Docker not available. Start Postgres manually or use a hosted DB."
+  echo "   Then update DATABASE_URL in apps/api/.env and run:"
+  echo "   cd apps/api && npx prisma migrate deploy"
 fi
 
 echo ""

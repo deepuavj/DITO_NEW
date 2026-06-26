@@ -1,18 +1,15 @@
 {
   "name": "DITO",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
-  "features": {
-    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
-  },
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "forwardPorts": [3000, 4200, 5432, 6379, 9000],
+  "forwardPorts": [3000, 4200, 5432, 6379],
   "portsAttributes": {
-    "3000": { "label": "API" },
-    "4200": { "label": "Web" },
-    "5432": { "label": "Postgres" },
-    "6379": { "label": "Redis" },
-    "9000": { "label": "MinIO" }
+    "3000": { "label": "API", "onAutoForward": "silent" },
+    "4200": { "label": "Web", "onAutoForward": "notify" },
+    "5432": { "label": "Postgres", "onAutoForward": "silent" },
+    "6379": { "label": "Redis", "onAutoForward": "silent" }
   },
   "customizations": {
     "vscode": {
