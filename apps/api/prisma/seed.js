@@ -29,6 +29,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'sofa',
+
+      snapRules: { surface: 'floor' },
       style: 'Modern',
       dimensions: { width: 2.2, height: 0.85, depth: 0.95 },
       material: { frame: 'Oak', fabric: 'Linen' },
@@ -44,6 +46,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'chair',
+
+      snapRules: { surface: 'floor' },
       style: 'Contemporary',
       dimensions: { width: 0.75, height: 0.9, depth: 0.7 },
       material: { frame: 'Walnut', fabric: 'Velvet' },
@@ -59,6 +63,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'sofa',
+
+      snapRules: { surface: 'floor' },
       style: 'Scandinavian',
       dimensions: { width: 1.5, height: 0.82, depth: 0.88 },
       material: { frame: 'Pine', fabric: 'Cotton Blend' },
@@ -74,6 +80,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'ottoman',
+
+      snapRules: { surface: 'floor' },
       style: 'Modern',
       dimensions: { width: 0.8, height: 0.4, depth: 0.8 },
       material: { frame: 'Solid Wood', fabric: 'Boucle' },
@@ -91,6 +99,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'coffee_table',
+
+      snapRules: { surface: 'floor' },
       style: 'Industrial',
       dimensions: { width: 1.2, height: 0.45, depth: 0.6 },
       material: { top: 'Tempered Glass', legs: 'Steel' },
@@ -106,6 +116,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'dining_table',
+
+      snapRules: { surface: 'floor' },
       style: 'Farmhouse',
       dimensions: { width: 1.8, height: 0.76, depth: 0.9 },
       material: { top: 'Solid Oak', legs: 'Oak' },
@@ -122,6 +134,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'side_table',
+
+      snapRules: { surface: 'floor' },
       style: 'Minimalist',
       dimensions: { width: 0.5, height: 0.55, depth: 0.5 },
       material: { body: 'Marble', legs: 'Brass' },
@@ -139,6 +153,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'bed',
+
+      snapRules: { surface: 'floor' },
       size: 'Queen',
       dimensions: { width: 1.6, height: 1.2, depth: 2.1 },
       material: { frame: 'Walnut', headboard: 'Upholstered Linen' },
@@ -155,6 +171,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'bed',
+
+      snapRules: { surface: 'floor' },
       size: 'King',
       dimensions: { width: 1.9, height: 1.2, depth: 2.2 },
       material: { frame: 'Oak', headboard: 'Channeled Velvet' },
@@ -173,6 +191,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'wardrobe',
+
+      snapRules: { surface: 'wall' },
       dimensions: { width: 2.4, height: 2.5, depth: 0.65 },
       material: { body: 'Walnut', handles: 'Brushed Aluminum' },
       finish: 'Matte',
@@ -189,6 +209,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'bookshelf',
+
+      snapRules: { surface: 'wall' },
       style: 'Open Frame',
       dimensions: { width: 1.0, height: 1.8, depth: 0.3 },
       material: { body: 'Pine', backPanel: 'MDF' },
@@ -208,6 +230,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'floor_lamp',
+
+      snapRules: { surface: 'floor' },
       style: 'Arc',
       dimensions: { width: 0.4, height: 1.8, depth: 0.4 },
       material: { pole: 'Brushed Steel', shade: 'Linen' },
@@ -224,6 +248,8 @@ const DEFAULT_ASSETS = [
     isPublic: true,
     metadata: {
       type: 'pendant_light',
+
+      snapRules: { surface: 'ceiling' },
       style: 'Industrial',
       dimensions: { width: 0.35, height: 0.35, depth: 0.35 },
       material: { shade: 'Blown Glass', cord: 'Textile' },

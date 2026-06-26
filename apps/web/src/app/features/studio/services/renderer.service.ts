@@ -328,7 +328,7 @@ export class RendererService implements OnDestroy {
             const scaleFactor = targetSize / maxDim;
             realGroup.scale.setScalar(scaleFactor);
 
-            // Sit on floor (y=0)
+            // Initial Y offset so geometry sits with min at y=0; resolveSnapY adjusts later
             const box2 = new THREE.Box3().setFromObject(realGroup);
             realGroup.position.y = -box2.min.y;
 
@@ -343,10 +343,12 @@ export class RendererService implements OnDestroy {
             this.meshMap.set(obj.id, realGroup);
             this.loadingSet.delete(obj.id);
 
-            // Apply current transform
+            // Apply current transform with snap-aware Y
             const current = this.sceneEngine.objects().find(o => o.id === obj.id);
             if (current) {
-              realGroup.position.set(current.position[0], realGroup.position.y, current.position[2]);
+              const snapY = this.resolveSnapY(obj.assetId, realGroup);
+              realGroup.position.set(current.position[0], snapY, current.position[2]);
+              this.applyWallSnap(obj.assetId, realGroup, current.position[0], current.position[2]);
               realGroup.rotation.set(...current.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
             }
           },
@@ -365,10 +367,76 @@ export class RendererService implements OnDestroy {
 
     group = this.meshMap.get(obj.id);
     if (!group) return;
-    group.position.set(obj.position[0], group.position.y, obj.position[2]);
+
+    const snapY = this.resolveSnapY(obj.assetId, group);
+    group.position.set(obj.position[0], snapY, obj.position[2]);
+    this.applyWallSnap(obj.assetId, group, obj.position[0], obj.position[2]);
     group.rotation.set(...obj.rotation.map(r => THREE.MathUtils.degToRad(r)) as [number, number, number]);
-    if (this.loadingSet.has(obj.id)) return; // don't override GLB scale during load
+    if (this.loadingSet.has(obj.id)) return;
     group.scale.set(...obj.scale);
+  }
+
+  /** Return the correct world-Y for an object based on its snapRules */
+  private resolveSnapY(assetId: string, group: THREE.Group): number {
+    const snap = this.metadataEngine.getSnapRule(assetId);
+    const surface = snap?.surface ?? 'floor';
+    const box = new THREE.Box3().setFromObject(group);
+    const objHeight = box.max.y - box.min.y || 0;
+
+    if (surface === 'ceiling') {
+      // Hang from ceiling: top of object at ceiling height
+      const roomH = this.roomHeightM();
+      return roomH - objHeight + Math.abs(box.min.y);
+    }
+    if (surface === 'wall') {
+      // Mid-wall — keep Y as-is (set at drop time to roomH/2)
+      return group.position.y || this.roomHeightM() / 2;
+    }
+    // floor / surface: sit on floor
+    return -box.min.y;
+  }
+
+  /** Push wall-snapped objects against the nearest wall and orient them inward */
+  private applyWallSnap(assetId: string, group: THREE.Group, wx: number, wz: number): void {
+    const snap = this.metadataEngine.getSnapRule(assetId);
+    if (snap?.surface !== 'wall') return;
+
+    // Find nearest wall centre from the Three.js wall meshes
+    let best: { dist: number; angle: number; px: number; pz: number } | null = null;
+    this.wallMeshMap.forEach((m, id) => {
+      if (id === '__floor__') return;
+      const dx = wx - m.position.x, dz = wz - m.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (!best || dist < best.dist) {
+        best = { dist, angle: m.rotation.y, px: m.position.x, pz: m.position.z };
+      }
+    });
+    if (!best) return;
+
+    const b = best as { dist: number; angle: number; px: number; pz: number };
+    // Normal pointing away from wall face (inward toward room)
+    const nx = Math.sin(b.angle);
+    const nz = Math.cos(b.angle);
+
+    // Half-depth of object along its local Z axis
+    const box = new THREE.Box3().setFromObject(group);
+    const halfDepth = (box.max.z - box.min.z) / 2;
+
+    // Position object so its back face touches the wall
+    group.position.x = b.px + nx * halfDepth;
+    group.position.z = b.pz + nz * halfDepth;
+
+    // Orient object to face inward (back to wall)
+    group.rotation.y = b.angle + Math.PI;
+  }
+
+  /** Room height derived from wall meshes — defaults to 2.8m */
+  private roomHeightM(): number {
+    let h = 2.8;
+    this.wallMeshMap.forEach((mesh, id) => {
+      if (id !== '__floor__') h = Math.max(h, mesh.scale.y);
+    });
+    return h;
   }
 
   private buildFurnitureMesh(objectId: string, assetId: string): THREE.Group {

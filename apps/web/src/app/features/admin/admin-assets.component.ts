@@ -6,14 +6,17 @@ import { AuthService } from '../../core/services/auth.service';
 import { AssetService, type CreateAssetDto, type CreateCategoryDto } from '../../core/services/asset.service';
 import type { Asset, Category } from '../../core/models/asset.models';
 
+type SnapSurface = 'floor' | 'wall' | 'ceiling' | 'surface' | '';
+
 interface AssetForm {
   name: string; category: string; glbUrl: string;
-  thumbnailUrl: string; tags: string; isPublic: boolean; metadataRaw: string;
+  thumbnailUrl: string; tags: string; isPublic: boolean;
+  snapTo: SnapSurface; metadataRaw: string;
 }
 interface CatForm { name: string; icon: string; color: string; }
 
 function emptyAssetForm(defaultCat = ''): AssetForm {
-  return { name: '', category: defaultCat, glbUrl: '', thumbnailUrl: '', tags: '', isPublic: true, metadataRaw: '{}' };
+  return { name: '', category: defaultCat, glbUrl: '', thumbnailUrl: '', tags: '', isPublic: true, snapTo: 'floor', metadataRaw: '{}' };
 }
 function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7280' }; }
 
@@ -129,6 +132,23 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
           <div class="fg">
             <label class="fl">Tags <span style="color:#9CA3AF;font-weight:400">(comma-separated)</span></label>
             <input class="fi" [(ngModel)]="assetForm.tags" placeholder="sofa, modern, living-room" />
+          </div>
+          <div class="fg">
+            <label class="fl">Snap To</label>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+              @for (opt of snapOptions; track opt.value) {
+                <button type="button"
+                  [style.border]="assetForm.snapTo === opt.value ? '2px solid #2563EB' : '2px solid #E5E7EB'"
+                  [style.background]="assetForm.snapTo === opt.value ? '#EFF6FF' : 'white'"
+                  [style.color]="assetForm.snapTo === opt.value ? '#2563EB' : '#6B7280'"
+                  style="padding:8px 4px;border-radius:9px;cursor:pointer;font-size:12px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px"
+                  (click)="assetForm.snapTo = opt.value">
+                  <span style="font-size:18px">{{ opt.icon }}</span>
+                  {{ opt.label }}
+                </button>
+              }
+            </div>
+            <div style="font-size:11px;color:#9CA3AF;margin-top:4px">Determines where this asset attaches in the 3D scene</div>
           </div>
           <div class="fg">
             <label class="fl">Metadata JSON</label>
@@ -603,6 +623,13 @@ export class AdminAssetsComponent implements OnInit {
     catch { this.metaJsonError.set('Invalid JSON — check syntax.'); }
   }
 
+  readonly snapOptions: { value: SnapSurface; label: string; icon: string }[] = [
+    { value: 'floor',   label: 'Floor',   icon: '⬇️' },
+    { value: 'wall',    label: 'Wall',    icon: '↔️' },
+    { value: 'ceiling', label: 'Ceiling', icon: '⬆️' },
+    { value: 'surface', label: 'Surface', icon: '📐' },
+  ];
+
   // ── Asset modal ──────────────────────────────────────────────────────────────
 
   openAddAsset() {
@@ -614,10 +641,12 @@ export class AdminAssetsComponent implements OnInit {
 
   openEditAsset(a: Asset) {
     this.editAssetId.set(a.id);
+    const existingSnap = (a.metadata?.['snapRules'] as any)?.surface as SnapSurface | undefined;
     this.assetForm = {
       name: a.name, category: a.category, glbUrl: a.glbUrl ?? '',
       thumbnailUrl: a.thumbnailUrl ?? '', tags: (a.tags ?? []).join(', '),
       isPublic: a.isPublic,
+      snapTo: existingSnap ?? 'floor',
       metadataRaw: JSON.stringify(a.metadata ?? {}, null, 2),
     };
     this.modalError.set(''); this.metaJsonError.set('');
@@ -625,12 +654,19 @@ export class AdminAssetsComponent implements OnInit {
   }
 
   saveAsset() {
-    const { name, category, glbUrl, thumbnailUrl, tags, isPublic, metadataRaw } = this.assetForm;
+    const { name, category, glbUrl, thumbnailUrl, tags, isPublic, snapTo, metadataRaw } = this.assetForm;
     if (!name.trim()) { this.modalError.set('Name is required.'); return; }
     if (!category)    { this.modalError.set('Category is required.'); return; }
     let metadata: Record<string, unknown> = {};
     try { metadata = JSON.parse(metadataRaw || '{}'); }
     catch { this.modalError.set('Fix the JSON metadata before saving.'); return; }
+
+    // Write snapRules into metadata
+    if (snapTo) {
+      metadata['snapRules'] = { surface: snapTo };
+    } else {
+      delete metadata['snapRules'];
+    }
 
     const dto: CreateAssetDto = {
       name: name.trim(), category,

@@ -767,9 +767,10 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       console.error('[DITO] Failed to parse drag asset:', err);
       return;
     }
-    console.log('[DITO] Dropping asset:', asset.name);
     this.metadataEngine.register(asset.id, asset.metadata ?? {});
     if (asset.glbUrl) this.metadataEngine.setGlbUrl(asset.id, asset.glbUrl);
+
+    // Determine drop position center from floor plan
     const walls = this.floorPlan.walls();
     let cx = 3.5, cz = 3;
     if (walls.length > 0) {
@@ -778,9 +779,20 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
       cx = (Math.min(...allX) + Math.max(...allX)) / 2 / PIXELS_PER_METER;
       cz = (Math.min(...allZ) + Math.max(...allZ)) / 2 / PIXELS_PER_METER;
     }
-    this.sceneEngine.addObject(asset.id, asset.name, [cx, 0, cz]);
+
+    // Resolve Y from snapRules
+    const snapSurface = (asset.metadata?.snapRules?.surface as string | undefined) ?? 'floor';
+    const roomHeightM = this.getRoomHeightM();
+    let cy = 0;
+    if (snapSurface === 'ceiling') {
+      cy = roomHeightM; // hang from ceiling — renderer will offset downward by object height
+    } else if (snapSurface === 'wall') {
+      cy = roomHeightM / 2; // mid-wall height, renderer will push against nearest wall
+    }
+    // floor / surface → cy = 0
+
+    this.sceneEngine.addObject(asset.id, asset.name, [cx, cy, cz]);
     this.history.push(`Added ${asset.name}`);
-    // Force immediate sync so object appears without waiting for next rAF
     this.renderer.syncScene();
   }
 
@@ -810,6 +822,12 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedId) this.deleteSelected();
     if (e.key === 'f' || e.key === 'F') this.fitView();
+  }
+
+  /** Returns room height in metres from the first wall's meta, defaulting to 2.8m */
+  private getRoomHeightM(): number {
+    const walls = this.floorPlan.walls();
+    return walls.length > 0 ? (walls[0].meta.height ?? 2800) / 1000 : 2.8;
   }
 
   // ─── Coordinate helpers ──────────────────────────────────────────────────────
