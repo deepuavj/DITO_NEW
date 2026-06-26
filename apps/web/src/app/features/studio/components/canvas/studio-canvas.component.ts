@@ -337,14 +337,16 @@ function rulerInterval(zoom: number): number {
                 <!-- ── Detected rooms — filled polygon + label ── -->
                 @for (r of rooms(); track r.id; let i = $index) {
                   <g>
-                    <!-- room fill polygon -->
+                    <!-- room fill polygon: click=select, dblclick=edit -->
                     <polygon
                       [attr.points]="roomPolyPoints(r)"
                       [attr.fill]="r.floorColor"
-                      fill-opacity="0.55"
-                      stroke="none"
+                      [attr.fill-opacity]="floorPlan.selectedRoomIndex() === i ? 0.75 : 0.55"
+                      [attr.stroke]="floorPlan.selectedRoomIndex() === i ? '#2563EB' : 'none'"
+                      [attr.stroke-width]="floorPlan.selectedRoomIndex() === i ? 2/zoom() : 0"
                       pointer-events="fill"
                       style="cursor:pointer"
+                      (mousedown)="selectRoom(i, $event)"
                       (dblclick)="openRoomEditor(i, $event)"/>
                     <!-- room label group -->
                     <g pointer-events="none">
@@ -730,6 +732,14 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     { value: 'balcony',  label: 'Balcony',     icon: '🌿' },
     { value: 'custom',   label: 'Custom',      icon: '✏️' },
   ];
+
+  selectRoom(index: number, e: MouseEvent): void {
+    e.stopPropagation();
+    this.floorPlan.selectedId.set(null);
+    this.floorPlan.selectedType.set(null);
+    this.floorPlan.selectedRoomIndex.set(index);
+    this.state.setSelectionState('room');
+  }
 
   openRoomEditor(index: number, e: MouseEvent): void {
     const r = this.rooms()[index];

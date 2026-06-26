@@ -8,6 +8,8 @@ import { SceneEngine } from '../../../../engines/scene/scene.engine';
 import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import type { FloorMaterial } from '../../services/studio-state.service';
 import type { PropertyDef } from '../../../../core/models/asset.models';
+import type { RoomType } from '../../services/floor-plan.service';
+import { ROOM_COLORS } from '../../services/floor-plan.service';
 
 @Component({
   selector: 'dito-properties-panel',
@@ -71,6 +73,18 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
     .floor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
     .floor-btn { padding: 7px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 11px; cursor: pointer; transition: all 150ms; text-align: center; }
     .floor-btn.active { background: rgba(37,99,235,0.2); border-color: rgba(37,99,235,0.4); color: #60A5FA; }
+    /* room type grid */
+    .room-type-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .room-type-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 2px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 10px; cursor: pointer; transition: all 150ms; }
+    .room-type-btn.active { background: rgba(37,99,235,0.2); border-color: rgba(37,99,235,0.5); color: #60A5FA; }
+    .room-type-btn:hover { border-color: rgba(37,99,235,0.3); }
+    /* room list */
+    .room-list-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; transition: background 150ms; margin-bottom: 2px; border: 1px solid transparent; }
+    .room-list-item:hover { background: rgba(255,255,255,0.04); }
+    .room-list-item.active { background: rgba(37,99,235,0.15); border-color: rgba(37,99,235,0.3); }
+    .room-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .room-list-label { flex: 1; font-size: 12px; color: var(--fg); }
+    .room-list-area { font-size: 11px; color: var(--muted); }
   `],
   template: `
     <div class="panel">
@@ -257,25 +271,73 @@ import type { PropertyDef } from '../../../../core/models/asset.models';
         }
 
         @if (activeTab() === 'Room') {
-          <div class="section-label">DIMENSIONS</div>
-          <div class="stat-card">
-            <div class="stat-row"><span class="stat-key">Width</span><span class="stat-val">{{ state.roomSize().width }} m</span></div>
-            <div class="stat-row"><span class="stat-key">Depth</span><span class="stat-val">{{ state.roomSize().depth }} m</span></div>
-            <div class="stat-row"><span class="stat-key">Height</span><span class="stat-val">{{ state.roomSize().height }} m</span></div>
-            <div class="stat-row"><span class="stat-key">Floor area</span><span class="stat-val">{{ floorArea() }} m²</span></div>
-          </div>
-          <div class="section-label">WALL COLOUR</div>
-          <div class="swatches" style="margin-bottom:12px">
-            @for (c of wallColors; track c) {
-              <button class="swatch" [style.background]="c" [class.sel]="state.wallColor()===c" (click)="state.wallColor.set(c)"></button>
+          @if (floorPlan.selectedRoom(); as room) {
+            <!-- Selected room settings -->
+            <div class="section-label">ROOM DETAILS</div>
+            <div class="stat-card" style="margin-bottom:10px">
+              <div class="stat-row"><span class="stat-key">Area</span><span class="stat-val">{{ room.area }} m²</span></div>
+            </div>
+
+            <div class="section-label">ROOM NAME</div>
+            <input type="text" class="xyz-input" style="width:100%;margin-bottom:12px;box-sizing:border-box"
+              [value]="room.label"
+              (change)="setRoomLabel($any($event.target).value)"
+              placeholder="e.g. Living Room" />
+
+            <div class="section-label">ROOM TYPE</div>
+            <div class="room-type-grid" style="margin-bottom:12px">
+              @for (rt of roomTypes; track rt.value) {
+                <button class="room-type-btn"
+                  [class.active]="room.type === rt.value"
+                  (click)="setRoomType(rt.value)">
+                  <span style="font-size:16px">{{ rt.icon }}</span>
+                  <span style="font-size:10px">{{ rt.label }}</span>
+                </button>
+              }
+            </div>
+
+            <div class="section-label">FLOOR COLOUR</div>
+            <div class="swatches" style="margin-bottom:6px">
+              @for (c of roomColorPalette; track c) {
+                <button class="swatch" [style.background]="c"
+                  [class.sel]="room.floorColor === c"
+                  (click)="setRoomColor(c)"></button>
+              }
+            </div>
+            <div class="prop-row" style="margin-bottom:12px">
+              <span class="prop-label">Custom colour</span>
+              <input type="color" [value]="room.floorColor" (input)="setRoomColor($any($event.target).value)"
+                style="width:36px;height:28px;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer;padding:2px"/>
+            </div>
+
+            <div class="section-label">ALL ROOMS</div>
+            @for (r of floorPlan.rooms(); track r.id; let i = $index) {
+              <div class="room-list-item" [class.active]="floorPlan.selectedRoomIndex() === i"
+                (click)="floorPlan.selectedRoomIndex.set(i)">
+                <span class="room-dot" [style.background]="r.floorColor"></span>
+                <span class="room-list-label">{{ r.label }}</span>
+                <span class="room-list-area">{{ r.area }} m²</span>
+              </div>
             }
-          </div>
-          <div class="section-label">FLOOR MATERIAL</div>
-          <div class="floor-grid">
-            @for (f of floorMaterials; track f.id) {
-              <button class="floor-btn" [class.active]="state.floorMaterial()===f.id" (click)="state.setFloorMaterial(f.id)">{{ f.label }}</button>
+          } @else {
+            <!-- No room selected -->
+            <div class="section-label">ALL ROOMS</div>
+            @if (floorPlan.rooms().length === 0) {
+              <div style="font-size:11px;color:var(--muted);padding:8px 0;line-height:1.5">
+                No rooms detected yet. Close your walls to form a room polygon in 2D.
+              </div>
             }
-          </div>
+            @for (r of floorPlan.rooms(); track r.id; let i = $index) {
+              <div class="room-list-item" (click)="floorPlan.selectedRoomIndex.set(i)">
+                <span class="room-dot" [style.background]="r.floorColor"></span>
+                <span class="room-list-label">{{ r.label }}</span>
+                <span class="room-list-area">{{ r.area }} m²</span>
+              </div>
+            }
+            <div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5">
+              Click a room in 2D to select and edit its name, type and floor colour.
+            </div>
+          }
         }
 
         @if (activeTab() === 'History') {
@@ -340,6 +402,40 @@ export class PropertiesPanelComponent {
   readonly furnitureColors = ['#2563EB', '#7C3AED', '#DB2777', '#DC2626', '#D97706', '#16A34A', '#0891B2', '#E2E8F0'];
   readonly materials = ['Fabric', 'Leather', 'Velvet', 'Wood', 'Metal', 'Rattan'];
   readonly xyzAxes = [{ i: 0, label: 'X' }, { i: 1, label: 'Y' }, { i: 2, label: 'Z' }] as const;
+
+  readonly roomColorPalette = ROOM_COLORS.concat([
+    '#FFF7ED', '#F0FDF4', '#FEF9C3', '#F5F3FF',
+    '#FFF1F2', '#ECFEFF', '#F8FAFC', '#E2E8F0',
+  ]);
+
+  readonly roomTypes: { value: RoomType; label: string; icon: string }[] = [
+    { value: 'living',   label: 'Living',   icon: '🛋' },
+    { value: 'bedroom',  label: 'Bedroom',  icon: '🛏' },
+    { value: 'kitchen',  label: 'Kitchen',  icon: '🍳' },
+    { value: 'bathroom', label: 'Bathroom', icon: '🚿' },
+    { value: 'hall',     label: 'Hall',     icon: '🚪' },
+    { value: 'dining',   label: 'Dining',   icon: '🍽' },
+    { value: 'balcony',  label: 'Balcony',  icon: '🌿' },
+    { value: 'custom',   label: 'Custom',   icon: '✏️' },
+  ];
+
+  setRoomLabel(label: string): void {
+    const i = this.floorPlan.selectedRoomIndex();
+    if (i < 0) return;
+    this.floorPlan.setRoomOverride(i, { label });
+  }
+
+  setRoomType(type: RoomType): void {
+    const i = this.floorPlan.selectedRoomIndex();
+    if (i < 0) return;
+    this.floorPlan.setRoomOverride(i, { type });
+  }
+
+  setRoomColor(color: string): void {
+    const i = this.floorPlan.selectedRoomIndex();
+    if (i < 0) return;
+    this.floorPlan.setRoomOverride(i, { floorColor: color });
+  }
 
   setPosition(axis: number, value: number): void {
     const obj = this.selectedObj();

@@ -70,6 +70,14 @@ export class FloorPlanService {
   readonly selectedId   = signal<string | null>(null);
   readonly selectedType = signal<'wall' | 'door' | 'window' | 'measure' | 'arc' | null>(null);
 
+  /** Selected room index (-1 = none) — drives Room tab in properties panel */
+  readonly selectedRoomIndex = signal<number>(-1);
+  readonly selectedRoom = computed(() => {
+    const i = this.selectedRoomIndex();
+    if (i < 0) return null;
+    return this.rooms()[i] ?? null;
+  });
+
   readonly selectedWall    = computed(() => this.walls().find(w => w.id === this.selectedId()) ?? null);
   readonly selectedDoor    = computed(() => this.doors().find(d => d.id === this.selectedId()) ?? null);
   readonly selectedWindow  = computed(() => this.windows().find(w => w.id === this.selectedId()) ?? null);
@@ -153,6 +161,7 @@ export class FloorPlanService {
   clearSelection(): void {
     this.selectedId.set(null);
     this.selectedType.set(null);
+    this.selectedRoomIndex.set(-1);
   }
 
   clear(): void {
