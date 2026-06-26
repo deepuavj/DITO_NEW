@@ -8,7 +8,7 @@ import { SceneEngine } from '../../../engines/scene/scene.engine';
 import { MaterialEngine } from '../../../engines/material/material.engine';
 import { MetadataEngine } from '../../../engines/metadata/metadata.engine';
 import type { SceneObject } from '../../../core/models/scene.models';
-import type { FPWall, FPDoor, FPWindow, FPArc } from './floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPArc, FPRoom } from './floor-plan.service';
 
 const PIXELS_PER_METER = 100;
 
@@ -133,7 +133,7 @@ export class RendererService implements OnDestroy {
     });
   }
 
-  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = [], previewWall: FPWall | null = null, arcs: FPArc[] = []): void {
+  syncFloorPlan(walls: FPWall[], doors: FPDoor[] = [], windows: FPWindow[] = [], previewWall: FPWall | null = null, arcs: FPArc[] = [], rooms: FPRoom[] = []): void {
     const allWalls = previewWall ? [...walls, previewWall] : walls;
     const wallIds = new Set(allWalls.map(w => w.id));
     const doorIds = new Set(doors.map(d => d.id));
@@ -147,15 +147,60 @@ export class RendererService implements OnDestroy {
 
     // Remove stale wall meshes
     this.wallMeshMap.forEach((mesh, id) => {
-      if (id !== '__floor__' && !wallIds.has(id)) { this.threeScene.remove(mesh); this.wallMeshMap.delete(id); }
+      if (!id.startsWith('__floor__') && !wallIds.has(id)) { this.threeScene.remove(mesh); this.wallMeshMap.delete(id); }
     });
     // Remove stale floor meshes (door/window markers stored here)
     this.floorMeshMap.forEach((mesh, id) => {
       if (!doorIds.has(id) && !winIds.has(id)) { this.threeScene.remove(mesh); this.floorMeshMap.delete(id); }
     });
 
-    // Build/update floor slab from bounding box of walls
-    if (walls.length >= 2) {
+    // Build/update per-room floor polygons (ShapeGeometry from detected rooms)
+    // Track which room floor IDs are current
+    const roomFloorIds = new Set(rooms.map((_r, i) => `__floor__${i}`));
+    // Remove stale room floors
+    this.wallMeshMap.forEach((mesh, id) => {
+      if (id.startsWith('__floor__') && !roomFloorIds.has(id)) {
+        this.threeScene.remove(mesh);
+        this.wallMeshMap.delete(id);
+      }
+    });
+
+    if (rooms.length > 0) {
+      // Build one floor mesh per detected room
+      for (let i = 0; i < rooms.length; i++) {
+        const room = rooms[i];
+        const key  = `__floor__${i}`;
+        const poly  = room.polygon;
+        // Convert 2D pixel polygon → Three.js Shape in metres (flip Y→Z)
+        const shape = new THREE.Shape();
+        shape.moveTo(poly[0].x / PIXELS_PER_METER, poly[0].y / PIXELS_PER_METER);
+        for (let j = 1; j < poly.length; j++) {
+          shape.lineTo(poly[j].x / PIXELS_PER_METER, poly[j].y / PIXELS_PER_METER);
+        }
+        shape.closePath();
+
+        let floor = this.wallMeshMap.get(key);
+        // Rebuild geometry whenever polygon may have changed (dispose old)
+        if (floor) { floor.geometry.dispose(); floor.geometry = new THREE.ShapeGeometry(shape); }
+        else {
+          const mat = new THREE.MeshStandardMaterial({
+            color: room.floorColor, roughness: 0.95, side: THREE.DoubleSide,
+          });
+          floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
+          floor.rotation.x = -Math.PI / 2;
+          floor.position.y = 0.001; // tiny offset above ground plane
+          floor.receiveShadow = true;
+          this.threeScene.add(floor);
+          this.wallMeshMap.set(key, floor);
+        }
+        // Update colour in case user changed it
+        (floor.material as THREE.MeshStandardMaterial).color.set(room.floorColor);
+        // Rebuild geometry each sync (polygon may change) — shape already set above
+        if (floor.geometry) floor.geometry.dispose();
+        floor.geometry = new THREE.ShapeGeometry(shape);
+      }
+    } else if (walls.length >= 2) {
+      // Fallback: bounding box floor when no rooms detected yet
       const allX = walls.flatMap(w => [w.start.x, w.end.x]);
       const allY = walls.flatMap(w => [w.start.y, w.end.y]);
       const minX = Math.min(...allX) / PIXELS_PER_METER;
@@ -163,7 +208,8 @@ export class RendererService implements OnDestroy {
       const minZ = Math.min(...allY) / PIXELS_PER_METER;
       const maxZ = Math.max(...allY) / PIXELS_PER_METER;
       const floorW = maxX - minX, floorD = maxZ - minZ;
-      let floor = this.wallMeshMap.get('__floor__');
+      const key = '__floor__bb';
+      let floor = this.wallMeshMap.get(key);
       if (!floor) {
         floor = new THREE.Mesh(
           new THREE.PlaneGeometry(1, 1),
@@ -172,10 +218,11 @@ export class RendererService implements OnDestroy {
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
         this.threeScene.add(floor);
-        this.wallMeshMap.set('__floor__', floor);
+        this.wallMeshMap.set(key, floor);
       }
       floor.scale.set(floorW, floorD, 1);
       floor.position.set((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
+      roomFloorIds.add(key);
     }
 
     for (const wall of allWalls) {
@@ -404,7 +451,7 @@ export class RendererService implements OnDestroy {
     // Find nearest wall centre from the Three.js wall meshes
     let best: { dist: number; angle: number; px: number; pz: number } | null = null;
     this.wallMeshMap.forEach((m, id) => {
-      if (id === '__floor__') return;
+      if (id.startsWith('__floor__')) return;
       const dx = wx - m.position.x, dz = wz - m.position.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       if (!best || dist < best.dist) {
@@ -434,7 +481,7 @@ export class RendererService implements OnDestroy {
   private roomHeightM(): number {
     let h = 2.8;
     this.wallMeshMap.forEach((mesh, id) => {
-      if (id !== '__floor__') h = Math.max(h, mesh.scale.y);
+      if (!id.startsWith('__floor__')) h = Math.max(h, mesh.scale.y);
     });
     return h;
   }
@@ -703,7 +750,7 @@ export class RendererService implements OnDestroy {
 
   highlightWall(wallId: string | null): void {
     this.wallMeshMap.forEach((mesh, id) => {
-      if (id === '__floor__') return;
+      if (id.startsWith('__floor__')) return;
       (mesh.material as THREE.MeshStandardMaterial).emissive?.set(
         id === wallId ? 0x334466 : 0x000000,
       );
@@ -734,7 +781,7 @@ export class RendererService implements OnDestroy {
     // Check walls
     const wallMeshes: THREE.Object3D[] = [];
     this.wallMeshMap.forEach((mesh, id) => {
-      if (id !== '__floor__') wallMeshes.push(mesh);
+      if (!id.startsWith('__floor__')) wallMeshes.push(mesh);
     });
     const wallHits = raycaster.intersectObjects(wallMeshes, false);
     if (wallHits.length) {

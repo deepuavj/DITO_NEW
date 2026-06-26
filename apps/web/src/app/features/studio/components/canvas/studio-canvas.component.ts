@@ -9,7 +9,7 @@ import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
-import type { FPWall, FPDoor, FPWindow, FPMeasure, FPArc } from '../../services/floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPMeasure, FPArc, FPRoom, RoomType } from '../../services/floor-plan.service';
 
 // ─── 2D data model re-exports for template compatibility ──────────────────────
 export type Pt = import('../../services/floor-plan.service').Pt;
@@ -26,6 +26,7 @@ export type Measure = FPMeasure;
 export type Arc = FPArc;
 
 export interface RoomLabel { id: string; cx: Pt; area: number }
+export type { FPRoom };
 export type Elem2D = FPWall | FPDoor | FPWindow | FPMeasure | FPArc;
 
 const PIXELS_PER_METER = 100; // 100 SVG units = 1 m
@@ -333,14 +334,37 @@ function rulerInterval(zoom: number): number {
                   </g>
                 }
 
-                <!-- ── Room labels (auto from enclosed walls) ── -->
-                @for (r of roomLabels(); track r.id) {
-                  <g pointer-events="none">
-                    <text [attr.x]="r.cx.x" [attr.y]="r.cx.y"
-                      [attr.font-size]="11 / zoom()" fill="var(--muted,#9CA3AF)"
-                      text-anchor="middle" dominant-baseline="central" font-weight="500">
-                      {{ r.area.toFixed(1) }} m²
-                    </text>
+                <!-- ── Detected rooms — filled polygon + label ── -->
+                @for (r of rooms(); track r.id; let i = $index) {
+                  <g>
+                    <!-- room fill polygon -->
+                    <polygon
+                      [attr.points]="roomPolyPoints(r)"
+                      [attr.fill]="r.floorColor"
+                      fill-opacity="0.55"
+                      stroke="none"
+                      pointer-events="fill"
+                      style="cursor:pointer"
+                      (dblclick)="openRoomEditor(i, $event)"/>
+                    <!-- room label group -->
+                    <g pointer-events="none">
+                      <rect
+                        [attr.x]="r.centroid.x - 38/zoom()"
+                        [attr.y]="r.centroid.y - 14/zoom()"
+                        [attr.width]="76/zoom()" [attr.height]="28/zoom()"
+                        fill="white" fill-opacity="0.75" rx="3"
+                        [attr.stroke]="r.floorColor" [attr.stroke-width]="1/zoom()"/>
+                      <text [attr.x]="r.centroid.x" [attr.y]="r.centroid.y - 3/zoom()"
+                        [attr.font-size]="11/zoom()" fill="#374151"
+                        text-anchor="middle" dominant-baseline="central" font-weight="600">
+                        {{ r.label }}
+                      </text>
+                      <text [attr.x]="r.centroid.x" [attr.y]="r.centroid.y + 10/zoom()"
+                        [attr.font-size]="9/zoom()" fill="#6B7280"
+                        text-anchor="middle" dominant-baseline="central">
+                        {{ r.area }} m²
+                      </text>
+                    </g>
                   </g>
                 }
 
@@ -489,6 +513,62 @@ function rulerInterval(zoom: number): number {
               X: {{ cursorWorld().x | number:'1.2-2' }} m &nbsp; Y: {{ cursorWorld().y | number:'1.2-2' }} m
             </div>
 
+            <!-- ── Room editor popover (double-click a room to open) ── -->
+            @if (roomEditorIndex() !== null) {
+              <div (click)="$event.stopPropagation()" (mousedown)="$event.stopPropagation()"
+                style="position:fixed;z-index:200;background:white;border-radius:14px;padding:18px 20px;
+                       width:260px;box-shadow:0 8px 32px rgba(0,0,0,0.18);border:1px solid #E5E7EB;
+                       font-size:13px;color:#111"
+                [style.left.px]="roomEditorPos().x" [style.top.px]="roomEditorPos().y">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                  <span style="font-weight:700;font-size:14px">Room Settings</span>
+                  <button (click)="closeRoomEditor()" style="background:none;border:none;font-size:17px;color:#9CA3AF;cursor:pointer">✕</button>
+                </div>
+                <!-- Label -->
+                <div style="margin-bottom:10px">
+                  <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px">Room Name</label>
+                  <input type="text" [value]="roomEditorLabel()" (input)="roomEditorLabel.set($any($event.target).value)"
+                    style="width:100%;box-sizing:border-box;border:1.5px solid #E5E7EB;border-radius:8px;padding:7px 10px;font-size:13px;outline:none"/>
+                </div>
+                <!-- Type chips -->
+                <div style="margin-bottom:10px">
+                  <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px">Room Type</label>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+                    @for (rt of roomTypes; track rt.value) {
+                      <button (click)="roomEditorType.set(rt.value)"
+                        [style.border]="roomEditorType() === rt.value ? '2px solid #2563EB' : '2px solid #E5E7EB'"
+                        [style.background]="roomEditorType() === rt.value ? '#EFF6FF' : 'white'"
+                        [style.color]="roomEditorType() === rt.value ? '#2563EB' : '#6B7280'"
+                        style="padding:5px 6px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:600;
+                               display:flex;align-items:center;gap:5px;text-align:left">
+                        <span>{{ rt.icon }}</span> {{ rt.label }}
+                      </button>
+                    }
+                  </div>
+                </div>
+                <!-- Floor color -->
+                <div style="margin-bottom:14px">
+                  <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px">Floor Colour</label>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    @for (c of floorColorPalette; track c) {
+                      <div (click)="roomEditorColor.set(c)"
+                        [style.background]="c"
+                        [style.outline]="roomEditorColor() === c ? '2px solid #2563EB' : 'none'"
+                        style="width:22px;height:22px;border-radius:5px;border:1px solid #E5E7EB;cursor:pointer"></div>
+                    }
+                    <input type="color" [value]="roomEditorColor()" (input)="roomEditorColor.set($any($event.target).value)"
+                      style="width:22px;height:22px;border:none;border-radius:5px;cursor:pointer;padding:0"/>
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end">
+                  <button (click)="closeRoomEditor()"
+                    style="padding:7px 14px;border:1px solid #E5E7EB;border-radius:8px;background:white;color:#6B7280;font-size:12px;cursor:pointer">Cancel</button>
+                  <button (click)="applyRoomEdit()"
+                    style="padding:7px 14px;border:none;border-radius:8px;background:#2563EB;color:white;font-size:12px;font-weight:600;cursor:pointer">Apply</button>
+                </div>
+              </div>
+            }
+
           </div><!-- canvas-area -->
         </div><!-- canvas-2d-body -->
       </div><!-- canvas-2d -->
@@ -620,18 +700,60 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
     return ticks;
   });
 
-  // ─── Room labels (basic centroid from wall set) ──────────────────────────────
-  readonly roomLabels = computed((): RoomLabel[] => {
-    const walls = this.floorPlan.walls();
-    if (walls.length < 3) return [];
-    const allX = walls.flatMap(w => [w.start.x, w.end.x]);
-    const allY = walls.flatMap(w => [w.start.y, w.end.y]);
-    const cx = (Math.min(...allX) + Math.max(...allX)) / 2;
-    const cy = (Math.min(...allY) + Math.max(...allY)) / 2;
-    const totalLen = walls.reduce((s, w) => s + dist(w.start, w.end), 0);
-    const areaM2 = (totalLen / PIXELS_PER_METER) ** 2 / (4 * Math.PI) * Math.PI;
-    return [{ id: 'room0', cx: { x: cx, y: cy }, area: +areaM2.toFixed(1) }];
-  });
+  // ─── Detected rooms (from FloorPlanService) ──────────────────────────────────
+  readonly rooms = this.floorPlan.rooms;
+
+  roomPolyPoints(r: FPRoom): string {
+    return r.polygon.map(p => `${p.x},${p.y}`).join(' ');
+  }
+
+  // ─── Room editor popover ──────────────────────────────────────────────────────
+  readonly roomEditorIndex  = signal<number | null>(null);
+  readonly roomEditorLabel  = signal('');
+  readonly roomEditorType   = signal<RoomType>('custom');
+  readonly roomEditorColor  = signal('#F9FAFB');
+  readonly roomEditorPos    = signal<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  readonly floorColorPalette = [
+    '#FEF3C7','#EDE9FE','#DCFCE7','#DBEAFE',
+    '#FEE2E2','#ECFDF5','#FFF7ED','#F3F4F6',
+    '#FEF9C3','#FCE7F3','#E0F2FE','#D1FAE5',
+  ];
+
+  readonly roomTypes: { value: RoomType; label: string; icon: string }[] = [
+    { value: 'living',   label: 'Living Room', icon: '🛋' },
+    { value: 'bedroom',  label: 'Bedroom',     icon: '🛏' },
+    { value: 'kitchen',  label: 'Kitchen',     icon: '🍳' },
+    { value: 'bathroom', label: 'Bathroom',    icon: '🚿' },
+    { value: 'hall',     label: 'Hall',        icon: '🚪' },
+    { value: 'dining',   label: 'Dining',      icon: '🍽' },
+    { value: 'balcony',  label: 'Balcony',     icon: '🌿' },
+    { value: 'custom',   label: 'Custom',      icon: '✏️' },
+  ];
+
+  openRoomEditor(index: number, e: MouseEvent): void {
+    const r = this.rooms()[index];
+    if (!r) return;
+    this.roomEditorIndex.set(index);
+    this.roomEditorLabel.set(r.label);
+    this.roomEditorType.set(r.type);
+    this.roomEditorColor.set(r.floorColor);
+    this.roomEditorPos.set({ x: e.clientX, y: e.clientY });
+    e.stopPropagation();
+  }
+
+  applyRoomEdit(): void {
+    const i = this.roomEditorIndex();
+    if (i === null) return;
+    this.floorPlan.setRoomOverride(i, {
+      label: this.roomEditorLabel(),
+      type:  this.roomEditorType(),
+      floorColor: this.roomEditorColor(),
+    });
+    this.roomEditorIndex.set(null);
+  }
+
+  closeRoomEditor(): void { this.roomEditorIndex.set(null); }
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
   ngAfterViewInit(): void {
@@ -677,6 +799,7 @@ export class StudioCanvasComponent implements AfterViewInit, OnDestroy {
           ? { id: '__preview__', start: this.drawStart()!, end: this.drawCurrent()!, meta: { thickness: 200, height: 2800, material: 'concrete', color: '#60A5FA' } }
           : null,
         this.floorPlan.arcs(),
+        this.floorPlan.rooms(),
       );
     }, { injector: this.injector });
     effect(() => {
