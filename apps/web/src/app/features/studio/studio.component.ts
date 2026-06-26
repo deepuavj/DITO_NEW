@@ -10,6 +10,9 @@ import { FurnitureLibraryComponent } from './components/assets-panel/assets-pane
 import { PropertiesPanelComponent } from './components/properties-panel/properties-panel.component';
 import { StudioToolbarComponent } from './components/toolbar/studio-toolbar.component';
 import { StatusBarComponent } from './components/status-bar/status-bar.component';
+import { ToolsPanel2DComponent } from './components/tools-panel/tools-panel-2d.component';
+import { FloorSwitcherComponent } from './components/floor-switcher/floor-switcher.component';
+import { LayersPanelComponent } from './components/layers-panel/layers-panel.component';
 import { SceneEngine } from '../../engines/scene/scene.engine';
 import { MetadataEngine } from '../../engines/metadata/metadata.engine';
 import { SceneService } from '../../core/services/scene.service';
@@ -25,6 +28,9 @@ import type { Theme } from './services/studio-state.service';
     PropertiesPanelComponent,
     StudioToolbarComponent,
     StatusBarComponent,
+    ToolsPanel2DComponent,
+    FloorSwitcherComponent,
+    LayersPanelComponent,
   ],
   providers: [StudioStateService, HistoryService, ProjectMetadataService],
   styles: [`
@@ -40,11 +46,14 @@ import type { Theme } from './services/studio-state.service';
       --grid-minor: rgba(0,0,0,0.07); --grid-major: rgba(0,0,0,0.14);
     }
     .studio-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
-    .canvas-area { flex: 1; position: relative; overflow: hidden; min-width: 0; }
+    .canvas-area { flex: 1; position: relative; overflow: hidden; min-width: 0; display: flex; flex-direction: column; }
+    .canvas-main { flex: 1; min-height: 0; position: relative; }
     .panel-toggle { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 48px; background: var(--panel-bg); border: 1px solid var(--border); color: var(--muted); font-size: 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 200ms; z-index: 10; }
     .panel-toggle:hover { color: var(--fg); background: rgba(37,99,235,0.3); }
     .left-toggle { left: 4px; border-radius: 0 4px 4px 0; }
     .right-toggle { right: 4px; border-radius: 4px 0 0 4px; }
+    /* Layers panel overlay */
+    .layers-overlay { position: absolute; left: 56px; top: 8px; z-index: 100; }
   `],
   template: `
     <div class="studio-root" [class.dark]="state.theme()==='dark'" [class.light]="state.theme()==='light'" (keydown)="onKeyDown($event)" tabindex="0">
@@ -52,14 +61,41 @@ import type { Theme } from './services/studio-state.service';
         <dito-studio-toolbar (saveClicked)="onSave()" (renderClicked)="onRender()" />
       }
       <div class="studio-body">
-        @if (state.leftPanelVisible()) {
-          <dito-furniture-library (assetSelected)="onAssetDrop($event)" />
+
+        <!-- In 2D mode: tool panel. In 3D mode: furniture library -->
+        @if (state.viewMode() === '2d') {
+          @if (state.leftPanelVisible()) {
+            <dito-tools-panel-2d
+              (fitView)="onFitView()"
+              (zoomIn)="onZoomIn()"
+              (zoomOut)="onZoomOut()" />
+          }
+        } @else {
+          @if (state.leftPanelVisible()) {
+            <dito-furniture-library (assetSelected)="onAssetDrop($event)" />
+          }
         }
+
         <div class="canvas-area" (dragover)="$event.preventDefault()" (drop)="onDrop($event)">
-          <dito-studio-canvas />
-          <button class="panel-toggle left-toggle" (click)="state.togglePanel('left')">{{ state.leftPanelVisible() ? '<' : '>' }}</button>
-          <button class="panel-toggle right-toggle" (click)="state.togglePanel('right')">{{ state.rightPanelVisible() ? '>' : '<' }}</button>
+          <div class="canvas-main">
+            <dito-studio-canvas #studioCanvas />
+            <button class="panel-toggle left-toggle" (click)="state.togglePanel('left')">{{ state.leftPanelVisible() ? '<' : '>' }}</button>
+            <button class="panel-toggle right-toggle" (click)="state.togglePanel('right')">{{ state.rightPanelVisible() ? '>' : '<' }}</button>
+
+            <!-- Layers panel overlay (2D only) -->
+            @if (state.viewMode() === '2d' && state.showLayers()) {
+              <div class="layers-overlay">
+                <dito-layers-panel (close)="state.showLayers.set(false)" />
+              </div>
+            }
+          </div>
+
+          <!-- Floor switcher at bottom of canvas (2D only) -->
+          @if (state.viewMode() === '2d' && state.showFloors()) {
+            <dito-floor-switcher />
+          }
         </div>
+
         @if (state.rightPanelVisible()) {
           <dito-properties-panel />
         }
@@ -79,11 +115,12 @@ export class StudioComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private toastTimer?: ReturnType<typeof setTimeout>;
 
+  // Reference to canvas for zoom/fit controls from tool panel
+  private canvasRef?: StudioCanvasComponent;
+
   constructor() {
-    // Restore persisted theme (must run before first render)
     const saved = localStorage.getItem('dito-theme') as Theme | null;
     if (saved === 'light' || saved === 'dark') this.state.theme.set(saved);
-    // Persist theme changes (effect requires injection context)
     effect(() => { localStorage.setItem('dito-theme', this.state.theme()); });
   }
 
@@ -95,6 +132,11 @@ export class StudioComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     if (this.toastTimer) clearTimeout(this.toastTimer);
   }
+
+  // Called by ToolsPanel2D outputs
+  onFitView(): void { this.canvasRef?.fitView(); }
+  onZoomIn(): void  { this.canvasRef?.zoomIn();  }
+  onZoomOut(): void { this.canvasRef?.zoomOut(); }
 
   onKeyDown(event: KeyboardEvent): void {
     const ctrl = event.ctrlKey || event.metaKey;
@@ -113,7 +155,6 @@ export class StudioComponent implements OnInit, OnDestroy {
 
   onAssetDrop(asset: Asset): void {
     this.metadataEngine.register(asset.id, asset.metadata);
-    // Place at room center derived from wall bounding box, not world origin
     const walls = this.floorPlan.walls();
     let cx = 3.5, cz = 3;
     if (walls.length > 0) {
@@ -144,6 +185,9 @@ export class StudioComponent implements OnInit, OnDestroy {
         doors:    this.floorPlan.doors(),
         windows:  this.floorPlan.windows(),
         measures: this.floorPlan.measures(),
+        stairs:   this.floorPlan.stairs(),
+        texts:    this.floorPlan.texts(),
+        shapes:   this.floorPlan.shapes(),
       },
     };
     this.sceneService.save(sceneId, sceneData)
@@ -164,12 +208,15 @@ export class StudioComponent implements OnInit, OnDestroy {
     this.sceneService.getById(id).subscribe({
       next: scene => {
         this.sceneEngine.loadSceneData(scene.sceneData);
-        const fp = scene.sceneData.floorPlan;
+        const fp = (scene.sceneData as { floorPlan?: Record<string, unknown[]> }).floorPlan;
         if (fp) {
-          this.floorPlan.walls.set(fp.walls ?? []);
-          this.floorPlan.doors.set(fp.doors ?? []);
-          this.floorPlan.windows.set(fp.windows ?? []);
-          this.floorPlan.measures.set(fp.measures ?? []);
+          if (fp['walls'])   this.floorPlan.walls.set(fp['walls'] as never);
+          if (fp['doors'])   this.floorPlan.doors.set(fp['doors'] as never);
+          if (fp['windows']) this.floorPlan.windows.set(fp['windows'] as never);
+          if (fp['measures']) this.floorPlan.measures.set(fp['measures'] as never);
+          if (fp['stairs'])  this.floorPlan.stairs.set(fp['stairs'] as never);
+          if (fp['texts'])   this.floorPlan.texts.set(fp['texts'] as never);
+          if (fp['shapes'])  this.floorPlan.shapes.set(fp['shapes'] as never);
         }
       },
       error: () => this.router.navigate(['/dashboard']),

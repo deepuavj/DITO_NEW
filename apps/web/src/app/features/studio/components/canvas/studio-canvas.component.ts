@@ -9,7 +9,8 @@ import { MetadataEngine } from '../../../../engines/metadata/metadata.engine';
 import { StudioStateService } from '../../services/studio-state.service';
 import { HistoryService } from '../../services/history.service';
 import { FloorPlanService } from '../../services/floor-plan.service';
-import type { FPWall, FPDoor, FPWindow, FPMeasure, FPArc, FPRoom, RoomType } from '../../services/floor-plan.service';
+import type { FPWall, FPDoor, FPWindow, FPMeasure, FPArc, FPRoom, FPStair, FPText, FPShape, RoomType } from '../../services/floor-plan.service';
+import { DEFAULT_STAIR_META } from '../../services/floor-plan.service';
 
 // ─── 2D data model re-exports for template compatibility ──────────────────────
 export type Pt = import('../../services/floor-plan.service').Pt;
