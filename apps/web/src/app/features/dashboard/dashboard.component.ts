@@ -126,9 +126,9 @@ const FEATURES = [
 
         @if (auth.user()?.role === 'ADMIN') {
           <div class="h-px bg-gray-100 mx-4 my-2"></div>
-          <button class="nav-item" (click)="router.navigate(['/admin'])">
-            <span class="icon">🛡</span>
-            <span>Admin</span>
+          <button class="nav-item" (click)="router.navigate(['/admin/assets'])">
+            <span class="icon">📦</span>
+            <span>Asset Management</span>
           </button>
         }
       </div>
