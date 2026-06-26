@@ -171,7 +171,10 @@ export class RendererService implements OnDestroy {
         const room = rooms[i];
         const key  = `__floor__${i}`;
         const poly  = room.polygon;
-        // Convert 2D pixel polygon → Three.js Shape in metres (flip Y→Z)
+        // 2D canvas: X right, Y down (pixel coords).
+        // Walls use: world X = pixel_x/PPM, world Z = pixel_y/PPM (both positive).
+        // ShapeGeometry lives in local XY. Rotating +PI/2 around X maps shape Y → world +Z,
+        // matching the wall Z convention. (-PI/2 would map shape Y → world -Z, wrong side.)
         const shape = new THREE.Shape();
         shape.moveTo(poly[0].x / PIXELS_PER_METER, poly[0].y / PIXELS_PER_METER);
         for (let j = 1; j < poly.length; j++) {
@@ -185,17 +188,15 @@ export class RendererService implements OnDestroy {
             color: room.floorColor, roughness: 0.95, side: THREE.DoubleSide,
           });
           floor = new THREE.Mesh(new THREE.ShapeGeometry(shape), mat);
-          floor.rotation.x = -Math.PI / 2;
-          floor.position.y = 0; // at world floor level (ground is at -0.05)
+          floor.rotation.x = Math.PI / 2; // +PI/2: shape Y → world +Z (matches wall Z axis)
+          floor.position.y = 0;           // ground plane is at -0.05, no z-fighting
           floor.receiveShadow = true;
           this.threeScene.add(floor);
           this.wallMeshMap.set(key, floor);
         } else {
-          // Rebuild geometry (polygon may have changed)
           floor.geometry.dispose();
           floor.geometry = new THREE.ShapeGeometry(shape);
         }
-        // Update colour in case user changed it
         (floor.material as THREE.MeshStandardMaterial).color.set(room.floorColor);
       }
     } else if (walls.length >= 2) {
