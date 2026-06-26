@@ -49,7 +49,7 @@ import { FloorPlanService } from '../../services/floor-plan.service';
     }
 
     <span class="info">
-      ↕ {{ (floorPlan.activeFloor()?.height ?? 2800) / 1000 | number:'1.1-1' }}m
+      ↕ {{ floorPlan.activeFloor().height / 1000 | number:'1.1-1' }}m
     </span>
   `,
 })
