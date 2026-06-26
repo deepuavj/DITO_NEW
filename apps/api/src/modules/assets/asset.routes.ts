@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../../utils/async-handler.util';
-import { authenticate, authorize } from '../../middleware/auth.middleware';
+import { authenticate, authorize, optionalAuthenticate } from '../../middleware/auth.middleware';
 import { sendSuccess, sendPaginated } from '../../utils/response.util';
 import { createAssetSchema, updateAssetSchema, assetQuerySchema } from './asset.validator';
 import { assetService } from './asset.service';
@@ -9,6 +9,7 @@ const router = Router();
 
 router.get(
   '/',
+  optionalAuthenticate as never,
   asyncHandler(async (req, res) => {
     const query = assetQuerySchema.parse(req.query);
     // Admin requests (with auth token) see all assets; public sees only isPublic
