@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -46,7 +46,7 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     .btn-danger:disabled { opacity:.6; cursor:not-allowed; }
     table { width:100%; border-collapse:collapse; background:white; border-radius:14px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.06); font-size:13px; }
     thead tr { background:#F9FAFB; }
-    th { padding:10px 14px; text-align:left; font-size:10px; font-weight:700; color:#6B7280; letter-spacing:.06em; text-transform:uppercase; border-bottom:1px solid #F3F4F6; }
+    th { padding:10px 14px; text-align:left; font-size:10px; font-weight:700; color:#6B7280; letter-spacing:.06em; text-transform:uppercase; border-bottom:1px solid #F3F4F6; white-space:nowrap; }
     td { padding:12px 14px; color:#374151; border-bottom:1px solid #F9FAFB; vertical-align:middle; }
     tr:last-child td { border-bottom:none; }
     tr:hover td { background:#FAFBFF; }
@@ -54,20 +54,25 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     .badge-blue { background:#EFF6FF; color:#2563EB; }
     .badge-green { background:#ECFDF5; color:#059669; }
     .badge-gray { background:#F3F4F6; color:#6B7280; }
+    .badge-red { background:#FEF2F2; color:#DC2626; }
     .thumb { width:38px; height:38px; border-radius:8px; background:#F3F4F6; display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; flex-shrink:0; }
     .thumb img { width:100%; height:100%; object-fit:cover; }
     .action-btn { padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; border:none; }
+    .action-btn:disabled { opacity:.5; cursor:not-allowed; }
     .edit-btn { background:#EFF6FF; color:#2563EB; }
-    .edit-btn:hover { background:#DBEAFE; }
+    .edit-btn:hover:not(:disabled) { background:#DBEAFE; }
     .del-btn { background:#FEF2F2; color:#DC2626; margin-left:5px; }
-    .del-btn:hover { background:#FEE2E2; }
+    .del-btn:hover:not(:disabled) { background:#FEE2E2; }
     .empty-state { text-align:center; padding:50px 0; color:#9CA3AF; }
-    /* Category cards */
-    .cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
-    .cat-card { background:white; border-radius:14px; border:1px solid rgba(0,0,0,.06); padding:16px; display:flex; align-items:center; gap:12px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
-    .cat-dot { width:36px; height:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
-    .cat-name { font-weight:600; font-size:13px; color:#1D1D1F; }
-    .cat-actions { margin-left:auto; display:flex; gap:4px; }
+    .loading-row td { color:#9CA3AF; text-align:center; }
+    /* Pagination */
+    .pagination { display:flex; align-items:center; justify-content:space-between; margin-top:16px; font-size:13px; }
+    .pagination-info { color:#6B7280; }
+    .pagination-btns { display:flex; align-items:center; gap:4px; }
+    .pg-btn { min-width:32px; height:32px; padding:0 10px; border:1.5px solid #E5E7EB; border-radius:7px; background:white; color:#374151; font-size:13px; font-weight:500; cursor:pointer; transition:all 130ms; }
+    .pg-btn:hover:not(:disabled) { border-color:#2563EB; color:#2563EB; }
+    .pg-btn.active { background:#2563EB; color:white; border-color:#2563EB; }
+    .pg-btn:disabled { opacity:.4; cursor:not-allowed; }
     /* Modal */
     .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); backdrop-filter:blur(4px); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
     .modal-card { background:white; border-radius:18px; padding:26px 30px; width:100%; max-width:560px; box-shadow:0 32px 80px rgba(0,0,0,.2); max-height:92vh; overflow-y:auto; }
@@ -88,12 +93,8 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     .del-confirm { background:#FEF2F2; border:1px solid #FECACA; border-radius:10px; padding:14px 16px; margin-bottom:14px; font-size:13px; color:#374151; }
     .del-confirm strong { color:#DC2626; }
     .cat-color-row { display:flex; gap:10px; align-items:center; }
-    .color-swatch { width:38px; height:38px; border-radius:8px; border:2px solid #E5E7EB; cursor:pointer; }
-    .meta-section { background:#F9FAFB; border-radius:10px; padding:12px 14px; margin-bottom:10px; font-size:12px; }
-    .meta-kv { display:flex; gap:6px; margin-bottom:6px; }
-    .meta-kv input { flex:1; border:1px solid #E5E7EB; border-radius:6px; padding:5px 8px; font-size:12px; outline:none; }
-    .meta-kv input:focus { border-color:#2563EB; }
-    .loading-row td { color:#9CA3AF; text-align:center; }
+    .cat-swatch { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+    .sort-order { width:54px; }
   `],
   template: `
     <!-- Asset Modal -->
@@ -104,7 +105,6 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
             {{ editAssetId() ? 'Edit Asset' : 'Add New Asset' }}
             <button class="modal-close" (click)="closeModals()">✕</button>
           </div>
-
           <div class="fg">
             <label class="fl">Name *</label>
             <input class="fi" [(ngModel)]="assetForm.name" placeholder="e.g. Modern 3-Seater Sofa" />
@@ -119,7 +119,7 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
             </select>
           </div>
           <div class="fg">
-            <label class="fl">GLB Model URL <span style="color:#9CA3AF">(leave blank for procedural mesh)</span></label>
+            <label class="fl">GLB Model URL <span style="color:#9CA3AF;font-weight:400">(leave blank for procedural mesh)</span></label>
             <input class="fi" [(ngModel)]="assetForm.glbUrl" placeholder="https://cdn.example.com/model.glb" />
           </div>
           <div class="fg">
@@ -127,7 +127,7 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
             <input class="fi" [(ngModel)]="assetForm.thumbnailUrl" placeholder="https://cdn.example.com/thumb.png" />
           </div>
           <div class="fg">
-            <label class="fl">Tags <span style="color:#9CA3AF">(comma-separated)</span></label>
+            <label class="fl">Tags <span style="color:#9CA3AF;font-weight:400">(comma-separated)</span></label>
             <input class="fi" [(ngModel)]="assetForm.tags" placeholder="sofa, modern, living-room" />
           </div>
           <div class="fg">
@@ -144,7 +144,6 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
               <label for="pub" class="fl" style="margin:0;cursor:pointer">Publicly visible in library</label>
             </div>
           </div>
-
           @if (modalError()) { <div class="error-msg">{{ modalError() }}</div> }
           <div class="modal-actions">
             <button class="btn-cancel" (click)="closeModals()">Cancel</button>
@@ -159,7 +158,7 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     <!-- Category Modal -->
     @if (showCatModal()) {
       <div class="modal-backdrop" (click)="closeModals()">
-        <div class="modal-card" style="max-width:400px" (click)="$event.stopPropagation()">
+        <div class="modal-card" style="max-width:420px" (click)="$event.stopPropagation()">
           <div class="modal-title">
             {{ editCatId() ? 'Edit Category' : 'Add Category' }}
             <button class="modal-close" (click)="closeModals()">✕</button>
@@ -176,14 +175,14 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
             <label class="fl">Colour</label>
             <div class="cat-color-row">
               <input type="color" [(ngModel)]="catForm.color" style="width:38px;height:38px;border-radius:8px;border:2px solid #E5E7EB;cursor:pointer;padding:2px" />
-              <input class="fi" [(ngModel)]="catForm.color" style="flex:1" placeholder="#6B7280" />
+              <input class="fi" [(ngModel)]="catForm.color" placeholder="#6B7280" />
             </div>
           </div>
           @if (modalError()) { <div class="error-msg">{{ modalError() }}</div> }
           <div class="modal-actions">
             <button class="btn-cancel" (click)="closeModals()">Cancel</button>
             <button class="btn-primary" [disabled]="saving()" (click)="saveCategory()">
-              {{ saving() ? 'Saving…' : (editCatId() ? 'Save' : 'Create') }}
+              {{ saving() ? 'Saving…' : (editCatId() ? 'Save Changes' : 'Create Category') }}
             </button>
           </div>
         </div>
@@ -194,12 +193,23 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
     @if (deleteTarget()) {
       <div class="modal-backdrop" (click)="deleteTarget.set(null)">
         <div class="modal-card" style="max-width:400px" (click)="$event.stopPropagation()">
-          <div class="modal-title">Delete {{ deleteTarget()!.kind === 'asset' ? 'Asset' : 'Category' }} <button class="modal-close" (click)="deleteTarget.set(null)">✕</button></div>
-          <div class="del-confirm">Are you sure you want to delete <strong>{{ deleteTarget()!.label }}</strong>? This cannot be undone.</div>
+          <div class="modal-title">
+            Delete {{ deleteTarget()!.kind === 'asset' ? 'Asset' : 'Category' }}
+            <button class="modal-close" (click)="deleteTarget.set(null)">✕</button>
+          </div>
+          <div class="del-confirm">
+            Are you sure you want to delete <strong>{{ deleteTarget()!.label }}</strong>?
+            @if (deleteTarget()!.kind === 'category') {
+              <br/><br/>Assets in this category will be moved to <strong>Uncategorised</strong>.
+            }
+            This cannot be undone.
+          </div>
           @if (modalError()) { <div class="error-msg">{{ modalError() }}</div> }
           <div class="modal-actions">
             <button class="btn-cancel" (click)="deleteTarget.set(null)">Cancel</button>
-            <button class="btn-danger" [disabled]="saving()" (click)="confirmDelete()">{{ saving() ? 'Deleting…' : 'Delete' }}</button>
+            <button class="btn-danger" [disabled]="saving()" (click)="confirmDelete()">
+              {{ saving() ? 'Deleting…' : 'Delete' }}
+            </button>
           </div>
         </div>
       </div>
@@ -207,27 +217,27 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
 
     <!-- Sidebar -->
     <nav class="sidebar">
-      <div class="flex items-center gap-3 px-4 py-5 border-b border-gray-100 mb-2" style="min-height:64px">
-        <div class="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
-          <span class="text-white text-sm font-bold">D</span>
+      <div style="display:flex;align-items:center;gap:12px;padding:16px;border-bottom:1px solid #F3F4F6;min-height:64px">
+        <div style="width:32px;height:32px;background:#2563EB;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <span style="color:white;font-size:14px;font-weight:700">D</span>
         </div>
-        <span class="text-base font-bold text-gray-900 whitespace-nowrap">DITO Admin</span>
+        <span style="font-size:15px;font-weight:700;color:#1D1D1F;white-space:nowrap">DITO Admin</span>
       </div>
-      <div class="flex-1 py-2 overflow-hidden">
+      <div style="flex:1;padding:8px 0;overflow:hidden">
         <button class="nav-item" (click)="router.navigate(['/dashboard'])">
           <span class="icon">🏠</span><span>Dashboard</span>
         </button>
-        <div class="h-px bg-gray-100 mx-4 my-2"></div>
+        <div style="height:1px;background:#F3F4F6;margin:4px 16px"></div>
         <button class="nav-item active">
           <span class="icon">📦</span><span>Asset Management</span>
         </button>
       </div>
-      <div class="border-t border-gray-100 py-3">
-        <div class="flex items-center gap-3 px-4 py-2 whitespace-nowrap overflow-hidden">
-          <div class="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-            <span class="text-red-600 text-xs font-bold">A</span>
+      <div style="border-top:1px solid #F3F4F6;padding:12px 0">
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 16px;white-space:nowrap;overflow:hidden">
+          <div style="width:32px;height:32px;border-radius:50%;background:#FEE2E2;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <span style="color:#DC2626;font-size:12px;font-weight:700">A</span>
           </div>
-          <span class="text-sm text-gray-700 truncate font-medium">{{ auth.user()?.name }}</span>
+          <span style="font-size:13px;color:#374151;overflow:hidden;text-overflow:ellipsis;font-weight:500">{{ auth.user()?.name }}</span>
         </div>
         <button class="nav-item" (click)="auth.logout()">
           <span class="icon" style="font-size:16px">→</span><span>Sign out</span>
@@ -250,41 +260,21 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
       <!-- Tabs -->
       <div class="tabs">
         <button class="tab" [class.active]="activeTab()==='assets'" (click)="activeTab.set('assets')">
-          Assets <span style="margin-left:5px;background:#EFF6FF;color:#2563EB;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700">{{ totalCount() }}</span>
+          Assets
+          <span style="margin-left:6px;background:#EFF6FF;color:#2563EB;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700">{{ assetTotal() }}</span>
         </button>
         <button class="tab" [class.active]="activeTab()==='categories'" (click)="activeTab.set('categories')">
-          Categories <span style="margin-left:5px;background:#F3F4F6;color:#6B7280;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700">{{ categories().length }}</span>
+          Categories
+          <span style="margin-left:6px;background:#F3F4F6;color:#6B7280;padding:1px 7px;border-radius:20px;font-size:11px;font-weight:700">{{ catTotal() }}</span>
         </button>
       </div>
 
-      <!-- ── Categories tab ── -->
-      @if (activeTab() === 'categories') {
-        <div class="cat-grid">
-          @for (cat of categories(); track cat.id) {
-            <div class="cat-card">
-              <div class="cat-dot" [style.background]="cat.color + '22'">{{ cat.icon }}</div>
-              <div>
-                <div class="cat-name">{{ cat.name }}</div>
-                <div style="font-size:11px;color:#9CA3AF">{{ assetCountFor(cat.name) }} assets</div>
-              </div>
-              <div class="cat-actions">
-                <button class="action-btn edit-btn" (click)="openEditCategory(cat)">Edit</button>
-                <button class="action-btn del-btn" (click)="deleteTarget.set({kind:'category',id:cat.id,label:cat.name})">Del</button>
-              </div>
-            </div>
-          }
-          @if (categories().length === 0 && !loadingCats()) {
-            <div class="empty-state" style="grid-column:1/-1">No categories yet — add one above.</div>
-          }
-        </div>
-      }
-
-      <!-- ── Assets tab ── -->
+      <!-- ── Assets tab ─────────────────────────────────────────────────────── -->
       @if (activeTab() === 'assets') {
         <div class="toolbar">
           <input class="search-input" type="text" placeholder="Search assets…"
-            [(ngModel)]="searchQuery" (ngModelChange)="onSearch()" />
-          <select class="filter-select" [(ngModel)]="filterCategory" (ngModelChange)="onFilter()">
+            [(ngModel)]="assetSearch" (ngModelChange)="onAssetSearch()" />
+          <select class="filter-select" [(ngModel)]="filterCategory" (ngModelChange)="onAssetFilter()">
             <option value="">All Categories</option>
             @for (c of categories(); track c.id) {
               <option [value]="c.name">{{ c.icon }} {{ c.name }}</option>
@@ -295,23 +285,30 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
         <table>
           <thead>
             <tr>
+              <th style="width:36px">#</th>
               <th>Asset</th>
               <th>Category</th>
               <th>Type</th>
-              <th>Dimensions</th>
+              <th>Dimensions (W×D×H m)</th>
               <th>Tags</th>
               <th>Vis.</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            @if (loading()) {
-              <tr class="loading-row"><td colspan="7" style="padding:40px">Loading assets…</td></tr>
+            @if (assetLoading()) {
+              <tr class="loading-row"><td colspan="8" style="padding:40px;text-align:center">Loading…</td></tr>
             } @else if (assets().length === 0) {
-              <tr><td colspan="7"><div class="empty-state"><div style="font-size:36px;margin-bottom:10px">📦</div><div style="font-weight:600">No assets found</div></div></td></tr>
+              <tr><td colspan="8">
+                <div class="empty-state">
+                  <div style="font-size:36px;margin-bottom:10px">📦</div>
+                  <div style="font-weight:600">No assets found</div>
+                </div>
+              </td></tr>
             } @else {
-              @for (a of assets(); track a.id) {
+              @for (a of assets(); track a.id; let i = $index) {
                 <tr>
+                  <td style="color:#9CA3AF;font-size:11px">{{ (assetPage()-1)*pageSize + i + 1 }}</td>
                   <td>
                     <div style="display:flex;align-items:center;gap:10px">
                       <div class="thumb">
@@ -321,9 +318,9 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
                       <div>
                         <div style="font-weight:600;color:#111827">{{ a.name }}</div>
                         @if (a.glbUrl) {
-                          <div style="font-size:10px;color:#9CA3AF;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.glbUrl }}</div>
+                          <div style="font-size:10px;color:#9CA3AF;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" [title]="a.glbUrl">{{ a.glbUrl }}</div>
                         } @else {
-                          <div style="font-size:10px;color:#10B981">▲ Procedural mesh</div>
+                          <div style="font-size:10px;color:#10B981">▲ Procedural</div>
                         }
                       </div>
                     </div>
@@ -331,25 +328,39 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
                   <td>
                     @let catObj = categoryObj(a.category);
                     @if (catObj) {
-                      <span class="badge" [style.background]="catObj.color + '22'" [style.color]="catObj.color">{{ catObj.icon }} {{ a.category }}</span>
+                      <span class="badge" [style.background]="catObj.color + '22'" [style.color]="catObj.color">
+                        {{ catObj.icon }} {{ a.category }}
+                      </span>
                     } @else {
                       <span class="badge badge-gray">{{ a.category }}</span>
                     }
                   </td>
-                  <td><span class="badge badge-blue">{{ a.metadata?.['type'] ?? '—' }}</span></td>
-                  <td style="font-size:11px;color:#6B7280">
+                  <td>
+                    @if (a.metadata?.['type']) {
+                      <span class="badge badge-blue">{{ a.metadata['type'] }}</span>
+                    } @else { <span style="color:#D1D5DB">—</span> }
+                  </td>
+                  <td style="font-size:11px;color:#6B7280;white-space:nowrap">
                     @let dim = a.metadata?.['dimensions'];
-                    @if (dim) { {{ dim['width'] }}×{{ dim['depth'] }}×{{ dim['height'] }}m }
-                    @else { — }
+                    @if (dim) { {{ dim['width'] }} × {{ dim['depth'] }} × {{ dim['height'] }} }
+                    @else { <span style="color:#D1D5DB">—</span> }
                   </td>
                   <td>
                     <div style="display:flex;flex-wrap:wrap;gap:3px">
-                      @for (t of a.tags.slice(0,2); track t) { <span class="badge badge-gray">{{ t }}</span> }
-                      @if (a.tags.length > 2) { <span class="badge badge-gray">+{{ a.tags.length-2 }}</span> }
+                      @for (t of (a.tags ?? []).slice(0,3); track t) {
+                        <span class="badge badge-gray">{{ t }}</span>
+                      }
+                      @if ((a.tags ?? []).length > 3) {
+                        <span class="badge badge-gray">+{{ (a.tags ?? []).length - 3 }}</span>
+                      }
                     </div>
                   </td>
-                  <td><span class="badge" [class.badge-green]="a.isPublic" [class.badge-gray]="!a.isPublic">{{ a.isPublic ? '✓' : '✕' }}</span></td>
                   <td>
+                    <span class="badge" [class.badge-green]="a.isPublic" [class.badge-red]="!a.isPublic">
+                      {{ a.isPublic ? '✓ Public' : '✕ Private' }}
+                    </span>
+                  </td>
+                  <td style="white-space:nowrap">
                     <button class="action-btn edit-btn" (click)="openEditAsset(a)">Edit</button>
                     <button class="action-btn del-btn" (click)="deleteTarget.set({kind:'asset',id:a.id,label:a.name})">Del</button>
                   </td>
@@ -359,37 +370,138 @@ function emptyCatForm(): CatForm { return { name: '', icon: '📦', color: '#6B7
           </tbody>
         </table>
 
-        @if (totalCount() > pageSize) {
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;font-size:13px">
-            <span style="color:#6B7280">Showing {{ (page()-1)*pageSize+1 }}–{{ Math.min(page()*pageSize, totalCount()) }} of {{ totalCount() }}</span>
-            <div style="display:flex;gap:8px">
-              <button class="action-btn edit-btn" [disabled]="page()===1" (click)="goPage(-1)">← Prev</button>
-              <span style="padding:4px 10px">{{ page() }}</span>
-              <button class="action-btn edit-btn" [disabled]="page()*pageSize>=totalCount()" (click)="goPage(1)">Next →</button>
-            </div>
+        <div class="pagination">
+          <span class="pagination-info">
+            @if (assetTotal() > 0) {
+              Showing {{ (assetPage()-1)*pageSize + 1 }}–{{ min(assetPage()*pageSize, assetTotal()) }} of {{ assetTotal() }} assets
+            } @else { No assets }
+          </span>
+          <div class="pagination-btns">
+            <button class="pg-btn" [disabled]="assetPage() === 1" (click)="assetGoPage(-1)">‹</button>
+            @for (p of assetPageNumbers(); track p) {
+              @if (p === -1) {
+                <span style="padding:0 4px;color:#9CA3AF">…</span>
+              } @else {
+                <button class="pg-btn" [class.active]="p === assetPage()" (click)="assetPage.set(p); loadAssets()">{{ p }}</button>
+              }
+            }
+            <button class="pg-btn" [disabled]="assetPage() * pageSize >= assetTotal()" (click)="assetGoPage(1)">›</button>
           </div>
-        }
+        </div>
+      }
+
+      <!-- ── Categories tab ─────────────────────────────────────────────────── -->
+      @if (activeTab() === 'categories') {
+        <div class="toolbar">
+          <input class="search-input" type="text" placeholder="Search categories…"
+            [(ngModel)]="catSearch" (ngModelChange)="onCatSearch()" />
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px">#</th>
+              <th>Category</th>
+              <th>Icon</th>
+              <th>Colour</th>
+              <th>Sort Order</th>
+              <th>Assets</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (catLoading()) {
+              <tr class="loading-row"><td colspan="8" style="padding:40px;text-align:center">Loading…</td></tr>
+            } @else if (pagedCategories().length === 0) {
+              <tr><td colspan="8">
+                <div class="empty-state">
+                  <div style="font-size:36px;margin-bottom:10px">🗂️</div>
+                  <div style="font-weight:600">No categories found</div>
+                </div>
+              </td></tr>
+            } @else {
+              @for (c of pagedCategories(); track c.id; let i = $index) {
+                <tr>
+                  <td style="color:#9CA3AF;font-size:11px">{{ (catPage()-1)*pageSize + i + 1 }}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div class="cat-swatch" [style.background]="c.color + '22'">{{ c.icon }}</div>
+                      <span style="font-weight:600;color:#111827">{{ c.name }}</span>
+                    </div>
+                  </td>
+                  <td style="font-size:20px">{{ c.icon }}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div style="width:18px;height:18px;border-radius:4px;flex-shrink:0" [style.background]="c.color"></div>
+                      <span style="font-size:12px;color:#6B7280;font-family:monospace">{{ c.color }}</span>
+                    </div>
+                  </td>
+                  <td style="color:#6B7280;font-size:13px">{{ c.sortOrder }}</td>
+                  <td>
+                    <span class="badge badge-blue">{{ assetCountMap()[c.name] ?? 0 }}</span>
+                  </td>
+                  <td style="font-size:11px;color:#9CA3AF;white-space:nowrap">{{ c.createdAt | date:'dd MMM yyyy' }}</td>
+                  <td style="white-space:nowrap">
+                    <button class="action-btn edit-btn" (click)="openEditCategory(c)">Edit</button>
+                    <button class="action-btn del-btn" (click)="deleteTarget.set({kind:'category',id:c.id,label:c.name})">Del</button>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+
+        <div class="pagination">
+          <span class="pagination-info">
+            @if (catTotal() > 0) {
+              Showing {{ (catPage()-1)*pageSize + 1 }}–{{ min(catPage()*pageSize, catTotal()) }} of {{ catTotal() }} categories
+            } @else { No categories }
+          </span>
+          <div class="pagination-btns">
+            <button class="pg-btn" [disabled]="catPage() === 1" (click)="catGoPage(-1)">‹</button>
+            @for (p of catPageNumbers(); track p) {
+              @if (p === -1) {
+                <span style="padding:0 4px;color:#9CA3AF">…</span>
+              } @else {
+                <button class="pg-btn" [class.active]="p === catPage()" (click)="catPage.set(p)">{{ p }}</button>
+              }
+            }
+            <button class="pg-btn" [disabled]="catPage() * pageSize >= catTotal()" (click)="catGoPage(1)">›</button>
+          </div>
+        </div>
       }
     </div>
   `,
 })
 export class AdminAssetsComponent implements OnInit {
-  readonly auth      = inject(AuthService);
-  readonly assetSvc  = inject(AssetService);
-  readonly router    = inject(Router);
-  readonly Math      = Math;
-  readonly pageSize  = 20;
+  readonly auth     = inject(AuthService);
+  readonly assetSvc = inject(AssetService);
+  readonly router   = inject(Router);
+  readonly pageSize = 15;
+  readonly min = Math.min;
 
-  activeTab   = signal<'assets' | 'categories'>('assets');
+  activeTab = signal<'assets' | 'categories'>('assets');
+
+  // ── Assets state ────────────────────────────────────────────────────────────
   assets      = signal<Asset[]>([]);
-  categories  = signal<Category[]>([]);
-  totalCount  = signal(0);
-  loading     = signal(true);
-  loadingCats = signal(true);
-  page        = signal(1);
-  searchQuery    = '';
+  assetTotal  = signal(0);
+  assetLoading = signal(true);
+  assetPage   = signal(1);
+  assetSearch = '';
   filterCategory = '';
 
+  // ── Categories state ────────────────────────────────────────────────────────
+  categories  = signal<Category[]>([]);
+  catTotal    = signal(0);
+  catLoading  = signal(true);
+  catPage     = signal(1);
+  catSearch   = '';
+
+  // Asset count per category name (loaded separately for accuracy)
+  assetCountMap = signal<Record<string, number>>({});
+
+  // ── Modal state ─────────────────────────────────────────────────────────────
   showAssetModal = signal(false);
   showCatModal   = signal(false);
   editAssetId    = signal<string | null>(null);
@@ -397,47 +509,102 @@ export class AdminAssetsComponent implements OnInit {
   saving         = signal(false);
   modalError     = signal('');
   metaJsonError  = signal('');
-
   assetForm: AssetForm = emptyAssetForm();
   catForm: CatForm     = emptyCatForm();
-
   deleteTarget = signal<{ kind: 'asset' | 'category'; id: string; label: string } | null>(null);
 
-  ngOnInit() { this.loadCategories(); this.loadAssets(); }
+  // Filtered + paged categories (client-side — categories are few)
+  readonly filteredCategories = computed(() => {
+    const q = this.catSearch.toLowerCase().trim();
+    return q ? this.categories().filter(c => c.name.toLowerCase().includes(q)) : this.categories();
+  });
+  readonly pagedCategories = computed(() => {
+    const start = (this.catPage() - 1) * this.pageSize;
+    return this.filteredCategories().slice(start, start + this.pageSize);
+  });
 
-  private loadCategories() {
-    this.loadingCats.set(true);
+  ngOnInit() {
+    this.loadCategories();
+    this.loadAssets();
+    this.loadAssetCounts();
+  }
+
+  // ── Data loading ─────────────────────────────────────────────────────────────
+
+  loadCategories() {
+    this.catLoading.set(true);
     this.assetSvc.listCategories().subscribe({
-      next: cats => { this.categories.set(cats); this.loadingCats.set(false); },
-      error: () => this.loadingCats.set(false),
+      next: cats => {
+        this.categories.set(cats);
+        this.catTotal.set(cats.length);
+        this.catLoading.set(false);
+      },
+      error: () => this.catLoading.set(false),
     });
   }
 
-  private loadAssets() {
-    this.loading.set(true);
-    const p: Record<string, string | number> = { page: this.page(), limit: this.pageSize };
-    if (this.searchQuery.trim()) p['search'] = this.searchQuery.trim();
+  loadAssets() {
+    this.assetLoading.set(true);
+    const p: Record<string, string | number> = { page: this.assetPage(), limit: this.pageSize };
+    if (this.assetSearch.trim()) p['search'] = this.assetSearch.trim();
     if (this.filterCategory) p['category'] = this.filterCategory;
     this.assetSvc.list(p as any).subscribe({
-      next: r => { this.assets.set(r.data ?? []); this.totalCount.set(r.meta?.total ?? 0); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      next: r => {
+        this.assets.set(r.data ?? []);
+        this.assetTotal.set(r.meta?.total ?? 0);
+        this.assetLoading.set(false);
+      },
+      error: () => this.assetLoading.set(false),
     });
   }
 
-  onSearch() { this.page.set(1); this.loadAssets(); }
-  onFilter() { this.page.set(1); this.loadAssets(); }
-  goPage(dir: 1 | -1) { this.page.update(p => p + dir); this.loadAssets(); }
+  /** Load all assets once (limit=500) to build accurate per-category counts */
+  private loadAssetCounts() {
+    this.assetSvc.list({ limit: 500 } as any).subscribe({
+      next: r => {
+        const map: Record<string, number> = {};
+        for (const a of r.data ?? []) {
+          map[a.category] = (map[a.category] ?? 0) + 1;
+        }
+        this.assetCountMap.set(map);
+      },
+    });
+  }
+
+  // ── Pagination helpers ───────────────────────────────────────────────────────
+
+  assetGoPage(dir: 1 | -1) { this.assetPage.update(p => p + dir); this.loadAssets(); }
+  catGoPage(dir: 1 | -1)   { this.catPage.update(p => p + dir); }
+
+  onAssetSearch() { this.assetPage.set(1); this.loadAssets(); }
+  onAssetFilter() { this.assetPage.set(1); this.loadAssets(); }
+  onCatSearch()   { this.catPage.set(1); }
+
+  assetPageNumbers(): number[] { return this.buildPages(this.assetPage(), Math.ceil(this.assetTotal() / this.pageSize)); }
+  catPageNumbers():   number[] { return this.buildPages(this.catPage(),   Math.ceil(this.filteredCategories().length / this.pageSize)); }
+
+  private buildPages(current: number, total: number): number[] {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages: number[] = [1];
+    if (current > 3) pages.push(-1);
+    for (let p = Math.max(2, current - 1); p <= Math.min(total - 1, current + 1); p++) pages.push(p);
+    if (current < total - 2) pages.push(-1);
+    pages.push(total);
+    return pages;
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   categoryIcon(name: string) { return this.categories().find(c => c.name === name)?.icon ?? '📦'; }
   categoryObj(name: string)  { return this.categories().find(c => c.name === name) ?? null; }
-  assetCountFor(catName: string) { return this.assets().filter(a => a.category === catName).length; }
 
   validateMetaJson() {
     try { JSON.parse(this.assetForm.metadataRaw); this.metaJsonError.set(''); }
     catch { this.metaJsonError.set('Invalid JSON — check syntax.'); }
   }
 
-  // ── Asset modal ─────────────────────────────────────────────────────────────
+  // ── Asset modal ──────────────────────────────────────────────────────────────
+
   openAddAsset() {
     this.editAssetId.set(null);
     this.assetForm = emptyAssetForm(this.filterCategory || (this.categories()[0]?.name ?? ''));
@@ -449,7 +616,7 @@ export class AdminAssetsComponent implements OnInit {
     this.editAssetId.set(a.id);
     this.assetForm = {
       name: a.name, category: a.category, glbUrl: a.glbUrl ?? '',
-      thumbnailUrl: a.thumbnailUrl ?? '', tags: a.tags.join(', '),
+      thumbnailUrl: a.thumbnailUrl ?? '', tags: (a.tags ?? []).join(', '),
       isPublic: a.isPublic,
       metadataRaw: JSON.stringify(a.metadata ?? {}, null, 2),
     };
@@ -476,12 +643,16 @@ export class AdminAssetsComponent implements OnInit {
     this.saving.set(true); this.modalError.set('');
     const id = this.editAssetId();
     (id ? this.assetSvc.update(id, dto) : this.assetSvc.create(dto)).subscribe({
-      next: () => { this.saving.set(false); this.closeModals(); this.loadAssets(); },
+      next: () => {
+        this.saving.set(false); this.closeModals();
+        this.loadAssets(); this.loadAssetCounts();
+      },
       error: (e: any) => { this.saving.set(false); this.modalError.set(e?.error?.message ?? 'Save failed.'); },
     });
   }
 
   // ── Category modal ───────────────────────────────────────────────────────────
+
   openAddCategory() {
     this.editCatId.set(null); this.catForm = emptyCatForm();
     this.modalError.set(''); this.showCatModal.set(true);
@@ -504,6 +675,8 @@ export class AdminAssetsComponent implements OnInit {
     });
   }
 
+  // ── Delete ───────────────────────────────────────────────────────────────────
+
   closeModals() {
     this.showAssetModal.set(false); this.showCatModal.set(false);
     this.deleteTarget.set(null); this.modalError.set('');
@@ -516,7 +689,8 @@ export class AdminAssetsComponent implements OnInit {
     op$.subscribe({
       next: () => {
         this.saving.set(false); this.deleteTarget.set(null);
-        if (t.kind === 'asset') this.loadAssets(); else { this.loadCategories(); this.loadAssets(); }
+        if (t.kind === 'asset') { this.loadAssets(); this.loadAssetCounts(); }
+        else { this.loadCategories(); this.loadAssets(); this.loadAssetCounts(); }
       },
       error: (e: any) => { this.saving.set(false); this.modalError.set(e?.error?.message ?? 'Delete failed.'); },
     });
