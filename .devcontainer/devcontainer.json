@@ -1,0 +1,44 @@
+{
+  "name": "DITO",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": false
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "forwardPorts": [
+    3000,
+    4200,
+    5432,
+    6379,
+    9000
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "API"
+    },
+    "4200": {
+      "label": "Web"
+    },
+    "5432": {
+      "label": "Postgres"
+    },
+    "6379": {
+      "label": "Redis"
+    },
+    "9000": {
+      "label": "MinIO"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "Angular.ng-template",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "prisma.prisma"
+      ]
+    }
+  }
+}
